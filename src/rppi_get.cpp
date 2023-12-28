@@ -352,29 +352,11 @@ void delete_directory(const std::string &_path) {
   std::filesystem::remove(path);
 }
 // copy file, create_directory automatically, overwrite_existing
-bool copy_file(const std::string &source, const std::string &destination,
-               const std::string &base) {
+bool copy_file(const std::string &source, const std::string &destination) {
   try {
-    std::filesystem::path src = parse_path(source);
-    std::filesystem::path dest = parse_path(destination);
-    std::filesystem::path base_ = parse_path(base);
-    if (!std::filesystem::is_directory(dest)) {
-      if (!std::filesystem::exists(dest.parent_path())) {
-		  std::string tpath = dest.parent_path().string();
-          // fixme: windows simplified Chinese codepage, create folder with space in the path cause exception, tested by iDvel/rime-ice
-          // "rime-ice\\others\\iRime\\iRime 九宫格\\melt_eng.custom.yaml" }
-		  std::filesystem::create_directory(tpath);
-	  }
-      std::filesystem::copy_file(
-          src, dest, std::filesystem::copy_options::overwrite_existing);
-    } else {
-      std::filesystem::path rpath = std::filesystem::relative(src, base_);
-      std::filesystem::path _path = destination / rpath;
-      if (!std::filesystem::exists(_path.parent_path()))
-        std::filesystem::create_directory(_path.parent_path());
-      std::filesystem::copy_file(
-          src, _path, std::filesystem::copy_options::overwrite_existing);
-    };
+    if(!std::filesystem::exists(std::filesystem::path(destination).parent_path()))
+      std::filesystem::create_directories(std::filesystem::path(destination).parent_path());
+    std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing);
     return true;
   } catch (const std::filesystem::filesystem_error &e) {
     std::cerr << "Failed to copy file: " << e.what() << std::endl;
@@ -403,7 +385,7 @@ int install_recipe(const Recipe &recipe) {
   list_files_to_vector(std::filesystem::path(local_path), files);
   for (const auto &file : files) {
 	std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
-    copy_file(file, target_path, local_path);
+    copy_file(file, target_path);
 	std::cout << "installed: " << target_path << std::endl;
   }
   VString().swap(files);
@@ -419,7 +401,7 @@ int install_recipe(const Recipe &recipe) {
       list_files_to_vector(std::filesystem::path(local_path), files);
       for (const auto &file : files) {
 		std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
-        copy_file(file, target_path, local_path);
+        copy_file(file, target_path);
         std::cout << "installed: " << target_path << std::endl;
       }
       VString().swap(files);
@@ -437,7 +419,7 @@ int install_recipe(const Recipe &recipe) {
       list_files_to_vector(std::filesystem::path(local_path), files);
       for (const auto &file : files) {
 		std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
-        copy_file(file, target_path, local_path);
+        copy_file(file, target_path);
         std::cout << "installed: " << target_path << std::endl;
       }
       VString().swap(files);
