@@ -16,7 +16,6 @@
 #pragma comment(lib, "rpcrt4.lib")
 #endif
 using json = nlohmann::json;
-using namespace std;
 using VString = std::vector<std::string>;
 #define FINALIZE_GIT(error)                                                    \
   {                                                                            \
