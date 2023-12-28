@@ -386,6 +386,9 @@ int install_recipe(const Recipe &recipe) {
   for (const auto &file : files) {
 	std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
     copy_file(file, target_path);
+#ifdef _WIN32
+    target_path = _to_string(_to_wstring(target_path), CP_UTF8);
+#endif
 	std::cout << "installed: " << target_path << std::endl;
   }
   VString().swap(files);
@@ -402,6 +405,9 @@ int install_recipe(const Recipe &recipe) {
       for (const auto &file : files) {
 		std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
         copy_file(file, target_path);
+#ifdef _WIN32
+		target_path = _to_string(_to_wstring(target_path), CP_UTF8);
+#endif
         std::cout << "installed: " << target_path << std::endl;
       }
       VString().swap(files);
@@ -420,6 +426,9 @@ int install_recipe(const Recipe &recipe) {
       for (const auto &file : files) {
 		std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
         copy_file(file, target_path);
+#ifdef _WIN32
+		target_path = _to_string(_to_wstring(target_path), CP_UTF8);
+#endif
         std::cout << "installed: " << target_path << std::endl;
       }
       VString().swap(files);
