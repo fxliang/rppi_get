@@ -575,7 +575,7 @@ int main(int argc, char **argv) {
         "i,install", "install recipe",
         cxxopts::value<std::string>())("s,search", "search recipe with keyword",
                                        cxxopts::value<std::string>())(
-        "c,clean", "clean caches")("v,verbose", "verbose settings");
+        "c,clean", "clean caches")("v,verbose", "verbose settings")("l,list", "list recipes in rppi");
     auto result = options.parse(argc, argv);
     int retry = 0;
     if (result.count("verbose")) {
@@ -635,6 +635,9 @@ int main(int argc, char **argv) {
       std::vector<Recipe>().swap(recipes);
       return 0;
     }
+    if (result.count("list")) {
+		print_recipes(recipes);
+	}
     if (result.count("install")) {
       std::string repo = result["install"].as<std::string>();
 #ifdef _WIN32
