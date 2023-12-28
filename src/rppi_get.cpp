@@ -63,12 +63,14 @@ struct Recipe {
 static int bar_width = 0;
 std::string proxy, mirror, user_dir, cache_dir;
 #ifdef _WIN32
+#define sep "\\"
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
   unsigned int cp = GetConsoleOutputCP();
   SetConsoleOutputCP(codepage);
   return cp;
 }
 #else
+#define sep "/"
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
   return 0;
 }
@@ -228,6 +230,7 @@ int clone_repository(const char *repo_url, const char *local_path,
     clone_opts.fetch_opts.proxy_opts.url = proxy_opts;
   clone_opts.fetch_opts.callbacks.transfer_progress = transfer_progress;
   clone_opts.fetch_opts.callbacks.credentials = credentials_callback;
+  clone_opts.fetch_opts.depth = 1;
   int error = git_clone(&repo, repo_url, local_path, &clone_opts);
   if (error != 0 && error != GIT_EEXISTS) {
     const git_error *git_error = giterr_last();
@@ -332,7 +335,7 @@ void list_files_to_vector(const std::filesystem::path &directory,
       list_files_to_vector(entry.path(), files);
     else if (entry.is_regular_file() &&
              !std::regex_match(entry.path().filename().string(), regex))
-      files.push_back(entry.path().filename().string());
+      files.push_back(entry.path().string());
   }
 }
 // delete directory
@@ -357,14 +360,17 @@ bool copy_file(const std::string &source, const std::string &destination,
     std::filesystem::path dest = parse_path(destination);
     std::filesystem::path base_ = parse_path(base);
     if (!std::filesystem::is_directory(dest)) {
-      if (!std::filesystem::exists(dest.parent_path()))
-        std::filesystem::create_directory(dest.parent_path());
+      if (!std::filesystem::exists(dest.parent_path())) {
+		  std::string tpath = dest.parent_path().string();
+          // fixme: windows simplified Chinese codepage, create folder with space in the path cause exception, tested by iDvel/rime-ice
+          // "rime-ice\\others\\iRime\\iRime 九宫格\\melt_eng.custom.yaml" }
+		  std::filesystem::create_directory(tpath);
+	  }
       std::filesystem::copy_file(
           src, dest, std::filesystem::copy_options::overwrite_existing);
     } else {
       std::filesystem::path rpath = std::filesystem::relative(src, base_);
       std::filesystem::path _path = destination / rpath;
-      std::cout << _path << std::endl;
       if (!std::filesystem::exists(_path.parent_path()))
         std::filesystem::create_directory(_path.parent_path());
       std::filesystem::copy_file(
@@ -390,15 +396,16 @@ bool delete_file(const std::string &_path) {
 // install recipe repo
 int install_recipe(const Recipe &recipe) {
   std::string repo_url = mirror + recipe.repo + ".git";
-  std::string local_path = (cache_dir + "/" + recipe.local_path);
+  std::string local_path = (cache_dir + sep + recipe.local_path);
   std::cout << "update recipe : " << recipe.repo << std::endl;
   VString files;
   int error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
   list_files_to_vector(std::filesystem::path(local_path), files);
   for (const auto &file : files) {
-    copy_file(local_path + "/" + file, user_dir + "/" + file, local_path);
-    std::cout << "installed: " << user_dir + "/" + file << std::endl;
+	std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
+    copy_file(file, target_path, local_path);
+	std::cout << "installed: " << target_path << std::endl;
   }
   VString().swap(files);
   if (recipe.dependencies.size()) {
@@ -406,14 +413,15 @@ int install_recipe(const Recipe &recipe) {
       repo_url = mirror + dep + ".git";
       size_t pos = dep.find("/");
       std::string local_path = dep.substr(pos + 1);
-      local_path = (cache_dir + "/" + local_path);
+      local_path = (cache_dir + sep + local_path);
       std::cout << "update dependency : " << dep << std::endl;
       error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
       list_files_to_vector(std::filesystem::path(local_path), files);
       for (const auto &file : files) {
-        copy_file(local_path + "/" + file, user_dir + "/" + file, local_path);
-        std::cout << "installed: " << user_dir + "/" + file << std::endl;
+		std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
+        copy_file(file, target_path, local_path);
+        std::cout << "installed: " << target_path << std::endl;
       }
       VString().swap(files);
     }
@@ -423,14 +431,15 @@ int install_recipe(const Recipe &recipe) {
       repo_url = mirror + dep + ".git";
       size_t pos = dep.find("/");
       std::string local_path = dep.substr(pos + 1);
-      local_path = (cache_dir + "/" + local_path);
+      local_path = (cache_dir + sep + local_path);
       std::cout << "update reverseDependency : " << dep << std::endl;
       error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
       list_files_to_vector(std::filesystem::path(local_path), files);
       for (const auto &file : files) {
-        copy_file(local_path + "/" + file, user_dir + "/" + file, local_path);
-        std::cout << "installed: " << user_dir + "/" + file << std::endl;
+		std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
+        copy_file(file, target_path, local_path);
+        std::cout << "installed: " << target_path << std::endl;
       }
       VString().swap(files);
     }
@@ -482,8 +491,8 @@ void parse_index_rppi(const std::string &file_dir, const std::string &category,
     }
   } else if (j.contains("categories")) {
     for (const auto &cat : j["categories"]) {
-      parse_index_rppi(file_dir + "/" + std::string(cat["key"]),
-                       category + "/" + std::string(cat["key"]), recipes);
+      parse_index_rppi(file_dir + sep + std::string(cat["key"]),
+                       category + sep + std::string(cat["key"]), recipes);
     }
   }
 }
