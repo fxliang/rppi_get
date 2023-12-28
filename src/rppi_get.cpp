@@ -137,13 +137,11 @@ std::string _to_string(const std::wstring &wstr, int code_page = CP_ACP) {
   delete[] buffer;
   return res;
 }
+inline std::string convertToUtf8(std::string &str) {
+  return _to_string(_to_wstring(str), CP_UTF8);
+}
 #else
-inline std::string _to_wstring(const std::string &str, int code_page = 0) {
-  return str;
-}
-inline std::string _to_string(const std::string &str, int code_page = 0) {
-  return str;
-}
+inline std::string convertToUtf8(std::string &str) { return str; }
 #endif
 // parse path to abs
 #ifdef _WIN32
@@ -308,7 +306,8 @@ int clone_or_update_repository(const char *repo_url, const char *local_path,
                                const char *proxy_opts) {
   int error = clone_repository(repo_url, local_path, proxy_opts);
   if (error == GIT_EEXISTS) {
-    // std::cout << local_path << " repo exists, checking update ..." << std::endl;
+    // std::cout << local_path << " repo exists, checking update ..." <<
+    // std::endl;
     update_repository(local_path, proxy_opts);
   }
   std::cout << std::endl;
@@ -354,9 +353,12 @@ void delete_directory(const std::string &_path) {
 // copy file, create_directory automatically, overwrite_existing
 bool copy_file(const std::string &source, const std::string &destination) {
   try {
-    if(!std::filesystem::exists(std::filesystem::path(destination).parent_path()))
-      std::filesystem::create_directories(std::filesystem::path(destination).parent_path());
-    std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing);
+    if (!std::filesystem::exists(
+            std::filesystem::path(destination).parent_path()))
+      std::filesystem::create_directories(
+          std::filesystem::path(destination).parent_path());
+    std::filesystem::copy_file(
+        source, destination, std::filesystem::copy_options::overwrite_existing);
     return true;
   } catch (const std::filesystem::filesystem_error &e) {
     std::cerr << "Failed to copy file: " << e.what() << std::endl;
@@ -384,12 +386,11 @@ int install_recipe(const Recipe &recipe) {
                                          proxy.c_str());
   list_files_to_vector(std::filesystem::path(local_path), files);
   for (const auto &file : files) {
-	std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
+    std::string target_path =
+        user_dir + sep + std::filesystem::relative(file, local_path).string();
     copy_file(file, target_path);
-#ifdef _WIN32
-    target_path = _to_string(_to_wstring(target_path), CP_UTF8);
-#endif
-	std::cout << "installed: " << target_path << std::endl;
+    target_path = convertToUtf8(target_path);
+    std::cout << "installed: " << target_path << std::endl;
   }
   VString().swap(files);
   if (recipe.dependencies.size()) {
@@ -403,11 +404,11 @@ int install_recipe(const Recipe &recipe) {
                                          proxy.c_str());
       list_files_to_vector(std::filesystem::path(local_path), files);
       for (const auto &file : files) {
-		std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
+        std::string target_path =
+            user_dir + sep +
+            std::filesystem::relative(file, local_path).string();
         copy_file(file, target_path);
-#ifdef _WIN32
-		target_path = _to_string(_to_wstring(target_path), CP_UTF8);
-#endif
+        target_path = convertToUtf8(target_path);
         std::cout << "installed: " << target_path << std::endl;
       }
       VString().swap(files);
@@ -424,11 +425,11 @@ int install_recipe(const Recipe &recipe) {
                                          proxy.c_str());
       list_files_to_vector(std::filesystem::path(local_path), files);
       for (const auto &file : files) {
-		std::string target_path = user_dir + sep + std::filesystem::relative(file, local_path).string();
+        std::string target_path =
+            user_dir + sep +
+            std::filesystem::relative(file, local_path).string();
         copy_file(file, target_path);
-#ifdef _WIN32
-		target_path = _to_string(_to_wstring(target_path), CP_UTF8);
-#endif
+        target_path = convertToUtf8(target_path);
         std::cout << "installed: " << target_path << std::endl;
       }
       VString().swap(files);
@@ -571,10 +572,10 @@ int main(int argc, char **argv) {
   try {
     cxxopts::Options options("rppi_get", " - A toy to play with rppi");
     options.add_options()("h,help", "print help")("u,update", "update rppi")(
-        "i,install", "install recipe",
-        cxxopts::value<std::string>())("s,search", "search recipe with keyword",
-                                       cxxopts::value<std::string>())(
-        "c,clean", "clean caches")("v,verbose", "verbose settings")("l,list", "list recipes in rppi");
+        "i,install", "install recipe", cxxopts::value<std::string>())(
+        "s,search", "search recipe with keyword",
+        cxxopts::value<std::string>())("c,clean", "clean caches")(
+        "v,verbose", "verbose settings")("l,list", "list recipes in rppi");
     auto result = options.parse(argc, argv);
     int retry = 0;
     if (result.count("verbose")) {
@@ -635,13 +636,12 @@ int main(int argc, char **argv) {
       return 0;
     }
     if (result.count("list")) {
-		print_recipes(recipes);
-	}
+      print_recipes(recipes);
+      return 0;
+    }
     if (result.count("install")) {
       std::string repo = result["install"].as<std::string>();
-#ifdef _WIN32
-      repo = _to_string(_to_wstring(repo, CP_ACP), CP_UTF8);
-#endif
+      repo = convertToUtf8(repo);
       std::vector<Recipe> res =
           filter_recipes_with_keyword(recipes, repo, true);
       if (res.size()) {
@@ -656,9 +656,7 @@ int main(int argc, char **argv) {
       return 0;
     } else if (result.count("search")) {
       std::string repo = result["search"].as<std::string>();
-#ifdef _WIN32
-      repo = _to_string(_to_wstring(repo, CP_ACP), CP_UTF8);
-#endif
+      repo = convertToUtf8(repo);
       std::cout << "search recipe with keyword: " << repo << std::endl;
       std::vector<Recipe> res =
           filter_recipes_with_keyword(recipes, repo, false);
