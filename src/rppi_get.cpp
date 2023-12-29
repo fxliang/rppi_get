@@ -245,6 +245,17 @@ int update_repository(const char *repo_path, const char *proxy_opts) {
     std::cout << "open repo error " << error << std::endl;
     FINALIZE_GIT(error);
   }
+  git_reference *head = nullptr;
+  error = git_repository_head(&head, repo);
+  if (error) {
+    std::cout << "get current head failed: " << error << std::endl;
+    FINALIZE_GIT(error);
+  }
+  const char *branch_name = git_reference_name(head);
+  if (branch_name == nullptr) {
+    std::cout << "get current branch name failed: " << error << std::endl;
+    FINALIZE_GIT(error);
+  }
   git_remote *remote = nullptr;
   error = git_remote_lookup(&remote, repo, "origin");
   if (error) {
@@ -260,15 +271,22 @@ int update_repository(const char *repo_path, const char *proxy_opts) {
     std::cout << "fetch remote origin error " << error << std::endl;
     FINALIZE_GIT(error);
   }
+  size_t pos = std::string(branch_name).find_last_of("/");
+  std::string bn = std::string(branch_name).substr(pos + 1);
   git_reference *local_ref = nullptr;
   git_reference *origin_ref = nullptr;
-  error = git_branch_lookup(&local_ref, repo, "master", GIT_BRANCH_LOCAL);
-  if (error)
-    std::cout << "error git_branch_lookup master" << std::endl;
-  error =
-      git_branch_lookup(&origin_ref, repo, "origin/master", GIT_BRANCH_REMOTE);
-  if (error)
-    std::cout << "error git_branch_lookup origin/master" << std::endl;
+  error = git_branch_lookup(&local_ref, repo, bn.c_str(), GIT_BRANCH_LOCAL);
+  if (error) {
+    std::cout << "error git_branch_lookup " << bn.c_str() << std::endl;
+    FINALIZE_GIT(error);
+  }
+  std::string origin_branch_name = "origin/" + bn;
+  error = git_branch_lookup(&origin_ref, repo, origin_branch_name.c_str(),
+                            GIT_BRANCH_REMOTE);
+  if (error) {
+    std::cout << "error git_branch_lookup " << origin_branch_name << std::endl;
+    FINALIZE_GIT(error);
+  }
   git_annotated_commit *local_commit = nullptr;
   git_annotated_commit *origin_commit = nullptr;
   git_annotated_commit_from_ref(&local_commit, repo, local_ref);

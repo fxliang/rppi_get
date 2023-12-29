@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.15)
 PROJECT(rppi_get)
 
 # build config
-set(CMAKE_BUILD_TYPE "Release")
+#set(CMAKE_BUILD_TYPE "Release")
 #set(CMAKE_BUILD_TYPE "Debug")
 
 # for libgit2
