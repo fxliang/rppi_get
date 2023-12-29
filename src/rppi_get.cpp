@@ -562,11 +562,14 @@ void print_recipes(const std::vector<Recipe> &recipes) {
 // load rppi config
 bool load_config() {
   std::string app_path = GetApplicationDirectory();
-  std::string config_path = file_exist("~/rppi_config.yaml")
+  std::string config_path = file_exist(parse_path("~/.rppi_config.yaml"))
                                 ? "~/rppi_config.yaml"
                                 : app_path + "/rppi_config.yaml";
   if (!file_exist(config_path)) // no configure file found
+  {
+    std::cout << "No configuration file found!" << std::endl;
     return false;
+  }
   // load proxy and mirror configuration
   YAML::Node config = YAML::LoadFile(config_path);
   if (config["proxy"])
@@ -583,12 +586,20 @@ bool load_config() {
     if (user_dir.at(user_dir.length() - 1) == '/')
       user_dir = user_dir.substr(0, user_dir.length() - 1);
     user_dir = parse_path(user_dir);
+    if (user_dir.empty()) {
+      std::cout << "user dir not set error!" << std::endl;
+      return false;
+    }
   }
   if (config["cache_dir"]) {
     cache_dir = config["cache_dir"].as<std::string>();
     if (cache_dir.at(cache_dir.length() - 1) == '/')
       cache_dir = cache_dir.substr(0, cache_dir.length() - 1);
     cache_dir = parse_path(cache_dir);
+    if (cache_dir.empty()) {
+      std::cout << "cache dir not set error!" << std::endl;
+      return false;
+    }
   }
   return true;
 }
@@ -596,7 +607,8 @@ bool load_config() {
 int main(int argc, char **argv) {
   int codepage = SetConsoleOutputCodePage();
   bar_width = (int)(terminal_width() * 0.6); // setup processbar width
-  load_config(); // load proxy and mirror configuration
+  if (!load_config())
+    return 0;
   try {
     cxxopts::Options options("rppi_get", " - A toy to play with rppi");
     options.add_options()("h,help", "print help")("u,update", "update rppi")(
