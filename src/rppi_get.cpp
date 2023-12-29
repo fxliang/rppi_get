@@ -320,13 +320,23 @@ int update_repository(const char *repo_path, const char *proxy_opts) {
   git_libgit2_shutdown();
   return error;
 }
+
+void delete_directory(const std::string &_path);
+
 int clone_or_update_repository(const char *repo_url, const char *local_path,
                                const char *proxy_opts) {
-  int error = clone_repository(repo_url, local_path, proxy_opts);
-  if (error == GIT_EEXISTS) {
-    // std::cout << local_path << " repo exists, checking update ..." <<
-    // std::endl;
-    update_repository(local_path, proxy_opts);
+  int error = 0;
+  if (std::filesystem::exists(local_path)) {
+    error = update_repository(local_path, proxy_opts);
+    // not a git directory
+    if (error == GIT_ENOTFOUND) {
+      std::cout << local_path << "not a git repo, delete it and clone "
+                << std::endl;
+      delete_directory(local_path);
+      error = clone_repository(repo_url, local_path, proxy_opts);
+    }
+  } else {
+    error = clone_repository(repo_url, local_path, proxy_opts);
   }
   std::cout << std::endl;
   return error;
