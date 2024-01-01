@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <cxxopts.hpp>
 #include <filesystem>
 #include <fstream>
@@ -11,19 +10,17 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 #ifdef _WIN32
-#include <Windows.h>
-#include <rpcdce.h>
-#pragma comment(lib, "rpcrt4.lib")
+	#include <Windows.h>
+	#include <rpcdce.h>
+	#define sep "\\"
+#else
+	#define sep "/"
 #endif
+
 using json = nlohmann::json;
 using VString = std::vector<std::string>;
-#define FINALIZE_GIT(error)                                                    \
-  {                                                                            \
-    std::cout << std::endl;                                                    \
-    git_repository_free(repo);                                                 \
-    git_libgit2_shutdown();                                                    \
-    return error;                                                              \
-  }
+
+// ----------------------------------------------------------------------------
 // for terminal_width()
 #include <utility>
 #if defined(_WIN32)
@@ -35,7 +32,6 @@ static inline std::pair<size_t, size_t> terminal_size() {
   rows = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
   return {static_cast<size_t>(rows), static_cast<size_t>(cols)};
 }
-static inline size_t terminal_width() { return terminal_size().second; }
 #else
 #include <sys/ioctl.h> //ioctl() and TIOCGWINSZ
 #include <unistd.h>    // for STDOUT_FILENO
@@ -44,9 +40,11 @@ static inline std::pair<size_t, size_t> terminal_size() {
   ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
   return {static_cast<size_t>(size.ws_row), static_cast<size_t>(size.ws_col)};
 }
-static inline size_t terminal_width() { return terminal_size().second; }
 #endif
+static inline size_t terminal_width() { return terminal_size().second; }
 // for terminal_width() ends
+// ----------------------------------------------------------------------------
+
 struct Recipe {
   std::string repo;
   std::string branch;
@@ -59,21 +57,28 @@ struct Recipe {
   std::string license;
   std::string local_path;
 };
+
+// ----------------------------------------------------------------------------
+// global vars
 static int bar_width = 0;
 std::string proxy, mirror, user_dir, cache_dir;
+// ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// for utf8 output in console esp for win32
 #ifdef _WIN32
-#define sep "\\"
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
   unsigned int cp = GetConsoleOutputCP();
   SetConsoleOutputCP(codepage);
   return cp;
 }
 #else
-#define sep "/"
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
   return 0;
 }
 #endif /* _WIN32 */
+
+// ----------------------------------------------------------------------------
 // GetApplicationDirectory
 #ifdef _WIN32
 #include <shlwapi.h>
@@ -102,6 +107,9 @@ std::string GetApplicationDirectory() {
   return appPath;
 }
 // GetApplicationDirectory end
+// ----------------------------------------------------------------------------
+// encoding stuff
+// ----------------------------------------------------------------------------
 #ifdef _WIN32
 std::wstring _to_wstring(const std::string &str, int code_page = CP_ACP) {
   // support CP_ACP and CP_UTF8 only
@@ -143,6 +151,15 @@ inline std::string convertToUtf8(std::string &str) {
 #else
 inline std::string convertToUtf8(std::string &str) { return str; }
 #endif
+// ----------------------------------------------------------------------------
+// for console text color in win32
+#ifdef _WIN32
+void SetConsoleColor(int color) {
+  HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+  SetConsoleTextAttribute(hConsole, color);
+}
+#endif // for console text color in win32 end
+// ----------------------------------------------------------------------------
 // parse path to abs
 #ifdef _WIN32
 #include <cstdlib>
@@ -168,17 +185,83 @@ std::string parse_path(const std::string &path) {
     return std::filesystem::absolute(_path).string();
   }
 }
-// for console text color in win32
-#ifdef _WIN32
-#define FOREGROUND_BLUE 0x0001  // text color contains blue.
-#define FOREGROUND_GREEN 0x0002 // text color contains green.
-#define FOREGROUND_RED 0x0004   // text color contains red.
-void SetConsoleColor(int color) {
-  HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
+// ----------------------------------------------------------------------------
+// filesystem utilities
+// ----------------------------------------------------------------------------
+// check if a file exist
+#define file_exist(file_path)                                                  \
+  std::filesystem::exists(std::filesystem::path(file_path))
+// list files in a directory
+void list_files(const std::filesystem::path &directory) {
+  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
+    if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
+      list_files(entry.path());
+    else if (entry.is_regular_file())
+      std::cout << entry.path().string() << std::endl;
+  }
 }
-#endif // for console text color in win32 end
+// list files in a directory to a vector for recipe
+void list_files_to_vector(const std::filesystem::path &directory,
+                          VString &files) {
+  std::string pattern = "readme.md|authors|license";
+  std::regex regex(pattern, std::regex_constants::icase);
+  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
+    if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
+      list_files_to_vector(entry.path(), files);
+    else if (entry.is_regular_file() &&
+             !std::regex_match(entry.path().filename().string(), regex))
+      files.push_back(entry.path().string());
+  }
+}
+// delete directory
+// fix me: some time not works under windows
+void delete_directory(const std::string &_path) {
+  std::filesystem::path path(parse_path(_path));
+  if (!std::filesystem::exists(path))
+    return;
+  for (const auto &entry : std::filesystem::directory_iterator(path)) {
+    if (entry.is_directory())
+      delete_directory(entry.path().string());
+    else
+      std::filesystem::remove(entry.path().string());
+  }
+  std::filesystem::remove(path);
+}
+// copy file, create_directory automatically, overwrite_existing
+bool copy_file(const std::string &source, const std::string &destination) {
+  try {
+    if (!std::filesystem::exists(
+            std::filesystem::path(destination).parent_path()))
+      std::filesystem::create_directories(
+          std::filesystem::path(destination).parent_path());
+    std::filesystem::copy_file(
+        source, destination, std::filesystem::copy_options::overwrite_existing);
+    return true;
+  } catch (const std::filesystem::filesystem_error &e) {
+    std::cerr << "Failed to copy file: " << e.what() << std::endl;
+    return false;
+  }
+}
+// delete file
+bool delete_file(const std::string &_path) {
+  try {
+    std::filesystem::path path = parse_path(_path);
+    std::filesystem::remove(path);
+    return true;
+  } catch (const std::filesystem::filesystem_error &e) {
+    std::cerr << "Failed to delete file: " << e.what() << std::endl;
+    return false;
+  }
+}
+// ----------------------------------------------------------------------------
 // libgit2 relate functions
+#define FINALIZE_GIT(error)                                                    \
+  {                                                                            \
+    std::cout << std::endl;                                                    \
+    git_repository_free(repo);                                                 \
+    git_libgit2_shutdown();                                                    \
+    return error;                                                              \
+  }
 // process bar for git fetch
 int transfer_progress(const git_transfer_progress *stats, void *payload) {
   static int last_percent = -1;
@@ -320,9 +403,6 @@ int update_repository(const char *repo_path, const char *proxy_opts) {
   git_libgit2_shutdown();
   return error;
 }
-
-void delete_directory(const std::string &_path);
-
 int clone_or_update_repository(const char *repo_url, const char *local_path,
                                const char *proxy_opts) {
   int error = 0;
@@ -342,68 +422,9 @@ int clone_or_update_repository(const char *repo_url, const char *local_path,
   return error;
 }
 // libgit2 relate functions ends
-// list files in a directory
-void list_files(const std::filesystem::path &directory) {
-  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
-    if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
-      list_files(entry.path());
-    else if (entry.is_regular_file())
-      std::cout << entry.path().string() << std::endl;
-  }
-}
-// list files in a directory to a vector for recipe
-void list_files_to_vector(const std::filesystem::path &directory,
-                          VString &files) {
-  std::string pattern = "readme.md|authors|license";
-  std::regex regex(pattern, std::regex_constants::icase);
-  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
-    if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
-      list_files_to_vector(entry.path(), files);
-    else if (entry.is_regular_file() &&
-             !std::regex_match(entry.path().filename().string(), regex))
-      files.push_back(entry.path().string());
-  }
-}
-// delete directory
-// fix me: some time not works under windows
-void delete_directory(const std::string &_path) {
-  std::filesystem::path path(parse_path(_path));
-  if (!std::filesystem::exists(path))
-    return;
-  for (const auto &entry : std::filesystem::directory_iterator(path)) {
-    if (entry.is_directory())
-      delete_directory(entry.path().string());
-    else
-      std::filesystem::remove(entry.path().string());
-  }
-  std::filesystem::remove(path);
-}
-// copy file, create_directory automatically, overwrite_existing
-bool copy_file(const std::string &source, const std::string &destination) {
-  try {
-    if (!std::filesystem::exists(
-            std::filesystem::path(destination).parent_path()))
-      std::filesystem::create_directories(
-          std::filesystem::path(destination).parent_path());
-    std::filesystem::copy_file(
-        source, destination, std::filesystem::copy_options::overwrite_existing);
-    return true;
-  } catch (const std::filesystem::filesystem_error &e) {
-    std::cerr << "Failed to copy file: " << e.what() << std::endl;
-    return false;
-  }
-}
-// delete file
-bool delete_file(const std::string &_path) {
-  try {
-    std::filesystem::path path = parse_path(_path);
-    std::filesystem::remove(path);
-    return true;
-  } catch (const std::filesystem::filesystem_error &e) {
-    std::cerr << "Failed to delete file: " << e.what() << std::endl;
-    return false;
-  }
-}
+// ----------------------------------------------------------------------------
+// recipes processes
+// ----------------------------------------------------------------------------
 // install recipe repo
 int install_recipe(const Recipe &recipe) {
   std::string repo_url = mirror + recipe.repo + ".git";
@@ -528,6 +549,18 @@ std::string join_string_vector(const VString &string_vector,
   res += _sep + _end;
   return res;
 }
+// print recipes info
+void print_recipes(const std::vector<Recipe> &recipes) {
+  for (const auto &r : recipes)
+    std::cout << "name: " << r.name << ", repo: "
+              << r.repo
+              //<< ", category: " << r.category
+              //<< ", schemas: " << join_string_vector(r.schemas)
+              //<< ", dependencies: " << join_string_vector(r.dependencies)
+              //<< ", reverseDependencies: " <<
+              // join_string_vector(r.reverseDependencies)
+              << std::endl;
+}
 // filter recipes with keyword, for recipe searching
 std::vector<Recipe>
 filter_recipes_with_keyword(const std::vector<Recipe> &recipes,
@@ -544,21 +577,6 @@ filter_recipes_with_keyword(const std::vector<Recipe> &recipes,
   }
   return res;
 }
-// print recipes info
-void print_recipes(const std::vector<Recipe> &recipes) {
-  for (const auto &r : recipes)
-    std::cout << "name: " << r.name << ", repo: "
-              << r.repo
-              //<< ", category: " << r.category
-              //<< ", schemas: " << join_string_vector(r.schemas)
-              //<< ", dependencies: " << join_string_vector(r.dependencies)
-              //<< ", reverseDependencies: " <<
-              // join_string_vector(r.reverseDependencies)
-              << std::endl;
-}
-// check if a file exist
-#define file_exist(file_path)                                                  \
-  std::filesystem::exists(std::filesystem::path(file_path))
 // load rppi config
 bool load_config() {
   std::string app_path = GetApplicationDirectory();
