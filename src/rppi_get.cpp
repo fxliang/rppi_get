@@ -10,11 +10,11 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 #ifdef _WIN32
-	#include <Windows.h>
-	#include <rpcdce.h>
-	#define sep "\\"
+#include <Windows.h>
+#include <rpcdce.h>
+#define sep "\\"
 #else
-	#define sep "/"
+#define sep "/"
 #endif
 
 using json = nlohmann::json;
@@ -211,6 +211,28 @@ void list_files_to_vector(const std::filesystem::path &directory,
     else if (entry.is_regular_file() &&
              !std::regex_match(entry.path().filename().string(), regex))
       files.push_back(entry.path().string());
+  }
+}
+void list_files_to_vector_by_recipe(const std::filesystem::path &directory,
+                                    VString &files,
+                                    const std::filesystem::path &recipe_file) {
+  YAML::Node config = YAML::LoadFile(recipe_file.string());
+  std::string install_files = "";
+  if (config["install_files"]) {
+    install_files = config["install_files"].as<std::string>();
+    install_files = std::regex_replace(install_files, std::regex("\\."), "\\.");
+    install_files = std::regex_replace(install_files, std::regex("\\*"), ".*");
+    install_files = std::regex_replace(install_files, std::regex("\\s"), "|");
+    install_files = ".*(" + install_files + ")$";
+  }
+  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
+    if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
+      list_files_to_vector_by_recipe(entry.path(), files, recipe_file);
+    else if (entry.is_regular_file() &&
+             std::regex_match(entry.path().string(),
+                              std::regex(install_files))) {
+      files.push_back(entry.path().string());
+    }
   }
 }
 // delete directory
@@ -426,14 +448,24 @@ int clone_or_update_repository(const char *repo_url, const char *local_path,
 // recipes processes
 // ----------------------------------------------------------------------------
 // install recipe repo
-int install_recipe(const Recipe &recipe) {
+int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
   std::string repo_url = mirror + recipe.repo + ".git";
   std::string local_path = (cache_dir + sep + recipe.local_path);
   std::cout << "update recipe : " << recipe.repo << std::endl;
   VString files;
   int error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
-  list_files_to_vector(std::filesystem::path(local_path), files);
+  if (!recipe_file.empty()) {
+    std::string recipe_file_path = local_path + sep + recipe_file;
+    if (file_exist(recipe_file_path))
+      list_files_to_vector_by_recipe(local_path, files, recipe_file_path);
+    else {
+      std::cout << "recipe file \"" << recipe_file_path << "\" not exists!"
+                << std::endl;
+      return -1;
+    }
+  } else
+    list_files_to_vector(std::filesystem::path(local_path), files);
   for (const auto &file : files) {
     std::string target_path =
         user_dir + sep + std::filesystem::relative(file, local_path).string();
@@ -700,11 +732,20 @@ int main(int argc, char **argv) {
     if (result.count("install")) {
       std::string repo = result["install"].as<std::string>();
       repo = convertToUtf8(repo);
+      size_t pos = repo.find(':');
+      std::string recipe_file = "";
+      if (pos < repo.length()) {
+        recipe_file = repo.substr(pos + 1) + ".recipe.yaml";
+        repo = repo.substr(0, pos);
+      }
       std::vector<Recipe> res =
           filter_recipes_with_keyword(recipes, repo, true);
       if (res.size()) {
-        std::cout << "install recipe by keyword : " << repo << std::endl;
-        install_recipe(res.at(0));
+        std::cout << "install recipe by keyword : " << repo;
+        if (!recipe_file.empty())
+          std::cout << ", with recipe file: " << recipe_file;
+        std::cout << std::endl;
+        install_recipe(res.at(0), recipe_file);
       } else {
         std::cout << "install recipe by : "
                   << result["install"].as<std::string>() << " failed ||-_-"
