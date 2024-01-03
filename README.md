@@ -36,13 +36,13 @@ copy rppi_config.yaml .\rppi_get\
 
 ## Usage
 
-configurations in rppi_config.yaml, `#` to disable, however don't comment `user_dir` and `cache_dir`
+configurations in rppi_config.yaml in the app directory, or `~/rppi_config.yaml` , `#` to disable, however don't comment `user_dir` and `cache_dir`
 
 ```yaml
 # your proxy setting for libgit2
-proxy: http://localhost:8118
+# proxy: http://localhost:8118
 # your github mirror setting, if your network not so good
-mirror: https://hub.yzuu.cf/
+# mirror: https://hub.yzuu.cf/
 # target user directory
 user_dir: ~/usr_dir
 # cache directory
