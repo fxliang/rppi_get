@@ -598,7 +598,7 @@ std::vector<Recipe>
 filter_recipes_with_keyword(const std::vector<Recipe> &recipes,
                             const std::string &keyword, bool strict = false) {
   std::vector<Recipe> res;
-  const std::regex regex = std::regex(".*" + keyword + ".*");
+  const std::regex regex = std::regex(".*" + keyword + ".*", std::regex_constants::icase);
   for (const auto &r : recipes) {
     if ((!strict &&
          (std::regex_match(r.name, regex) || std::regex_match(r.repo, regex) ||
