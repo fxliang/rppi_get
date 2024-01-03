@@ -771,7 +771,7 @@ int main(int argc, char **argv) {
       recipe.repo = repo;
       pos = repo.find('/');
       recipe.local_path = repo.substr(pos + 1);
-      std::cout << "git install recipe by keyword : " << repo;
+      std::cout << "git install recipe by url : " << mirror << repo << ".git";
       if (!recipe_file.empty())
         std::cout << ", with recipe file: " << recipe_file;
       std::cout << std::endl;
