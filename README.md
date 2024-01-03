@@ -15,7 +15,10 @@ output in `build/rppi_get`, copy and play with it. I am not a good linux user, s
 
 ### windows
 
-install cmake, visual studio and git
+install cmake, visual studio and git, and cmake --build it. 
+
+Or you can download the latest artifact of main branch, in [Actions](https://github.com/fxliang/actions)
+
 maybe mingw-w64 also works, but I haven't tried it out.
 
 ```cmd
@@ -55,6 +58,7 @@ Usage:
   -h, --help         print help
   -u, --update       update rppi
   -i, --install arg  install recipe
+  -g, --git arg      install recipe by git repo
   -s, --search arg   search recipe with keyword
   -c, --clean        clean caches
   -v, --verbose      verbose settings
@@ -63,18 +67,18 @@ Usage:
 
 ## Examples(windows)
 
-to update rppi index
+- to update rppi index
 ```cmd
 rppi_get.exe -u
 ```
 
 
-to list all recipes in rppi
+- to list all recipes in rppi
 ```cmd
 rppi_get.exe -l
 ```
 
-to search recipes in rppi
+- to search recipes in rppi
 ```cmd
 rppi_get.exe -s wubi
 ```
@@ -88,12 +92,27 @@ name: 大字符集五笔, repo: lotem/rime-linguistic-wubi
 name: 孤狐五笔, repo: lotem/rime-guhuwubi
 ```
 
-to install a recipe to user_dir, type the name or repo 
+- to install a recipe to user_dir, type the name or repo 
 ```cmd
 rppi_get.exe -i rime/rime-bopomofo
 ```
+
 or
 
 ```cmd
 rppi_get.exe -i 注音
+```
+
+- to install a recipe with specific recipe.yaml
+```cmd
+rppi_get.exe -i iDvel/rime-ice:others/recipes/full
+```
+
+- to install a recipe with github repository
+```cmd
+rppi_get.exe -g iDvel/rime-ice
+```
+- to install a recipe with github repository with specific recipe.yaml
+```cmd
+rppi_get.exe -g iDvel/rime-ice:others/recipes/full
 ```
