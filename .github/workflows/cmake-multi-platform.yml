@@ -90,6 +90,8 @@ jobs:
         copy build/deps/libgit2/Release/git2.dll rppi_get/
         copy build/Release/rppi_get.exe rppi_get/
         copy rppi_config.yaml rppi_get/
+        copy LICENSE rppi_get/
+        copy README.md rppi_get/
         
     - name: Upload artifacts(Windows)
       uses: actions/upload-artifact@v3
