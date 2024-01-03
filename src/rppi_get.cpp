@@ -224,6 +224,9 @@ void list_files_to_vector_by_recipe(const std::filesystem::path &directory,
     install_files = std::regex_replace(install_files, std::regex("\\*"), ".*");
     install_files = std::regex_replace(install_files, std::regex("\\s"), "|");
     install_files = ".*(" + install_files + ")$";
+#ifdef _WIN32
+		install_files = std::regex_replace(install_files, std::regex("/"), "\\\\");
+#endif
   }
   for (const auto &entry : std::filesystem::directory_iterator(directory)) {
     if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
