@@ -670,9 +670,18 @@ int main(int argc, char **argv) {
         "g,git", "install recipe by git repo", cxxopts::value<std::string>())(
         "s,search", "search recipe with keyword",
         cxxopts::value<std::string>())("c,clean", "clean caches")(
-        "v,verbose", "verbose settings")("l,list", "list recipes in rppi");
+        "v,verbose", "verbose settings")("l,list", "list recipes in rppi")(
+        "m,mirror", "configure github mirror", cxxopts::value<std::string>())(
+        "p,proxy", "configure git proxy", cxxopts::value<std::string>());
     auto result = options.parse(argc, argv);
     int retry = 0;
+    if (result.count("mirror")) {
+      mirror = result["mirror"].as<std::string>();
+      if (mirror.back() != '/')
+        mirror.append("/");
+    }
+    if (result.count("proxy"))
+      proxy = result["proxy"].as<std::string>();
     if (result.count("verbose")) {
 #ifdef _WIN32
       std::cout << "mirror: ";
@@ -715,7 +724,14 @@ int main(int argc, char **argv) {
     } else if (result.count("update")) {
     updaterppi:
       std::cout << "update rppi index" << std::endl;
-      update_rppi(cache_dir + "/rppi", mirror, proxy);
+      int error = update_rppi(cache_dir + "/rppi", mirror, proxy);
+      retry++;
+      if (error == GIT_EUNBORNBRANCH) { // get current ref head failed
+        if (std::filesystem::exists(cache_dir + sep + "rppi")) {
+          delete_directory(cache_dir + sep + "rppi");
+          goto updaterppi;
+        }
+      }
       if (retry > 10)
         return 0;
     }
