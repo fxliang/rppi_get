@@ -225,7 +225,7 @@ void list_files_to_vector_by_recipe(const std::filesystem::path &directory,
     install_files = std::regex_replace(install_files, std::regex("\\s"), "|");
     install_files = ".*(" + install_files + ")$";
 #ifdef _WIN32
-		install_files = std::regex_replace(install_files, std::regex("/"), "\\\\");
+    install_files = std::regex_replace(install_files, std::regex("/"), "\\\\");
 #endif
   }
   for (const auto &entry : std::filesystem::directory_iterator(directory)) {
@@ -601,7 +601,8 @@ std::vector<Recipe>
 filter_recipes_with_keyword(const std::vector<Recipe> &recipes,
                             const std::string &keyword, bool strict = false) {
   std::vector<Recipe> res;
-  const std::regex regex = std::regex(".*" + keyword + ".*", std::regex_constants::icase);
+  const std::regex regex =
+      std::regex(".*" + keyword + ".*", std::regex_constants::icase);
   for (const auto &r : recipes) {
     if ((!strict &&
          (std::regex_match(r.name, regex) || std::regex_match(r.repo, regex) ||
@@ -666,6 +667,7 @@ int main(int argc, char **argv) {
     cxxopts::Options options("rppi_get", " - A toy to play with rppi");
     options.add_options()("h,help", "print help")("u,update", "update rppi")(
         "i,install", "install recipe", cxxopts::value<std::string>())(
+        "g,git", "install recipe by git repo", cxxopts::value<std::string>())(
         "s,search", "search recipe with keyword",
         cxxopts::value<std::string>())("c,clean", "clean caches")(
         "v,verbose", "verbose settings")("l,list", "list recipes in rppi");
@@ -755,6 +757,25 @@ int main(int argc, char **argv) {
                   << std::endl;
       }
       std::vector<Recipe>().swap(recipes);
+      return 0;
+    } else if (result.count("git")) {
+      std::string repo = result["git"].as<std::string>();
+      repo = convertToUtf8(repo);
+      size_t pos = repo.find(':');
+      std::string recipe_file = "";
+      if (pos < repo.length()) {
+        recipe_file = repo.substr(pos + 1) + ".recipe.yaml";
+        repo = repo.substr(0, pos);
+      }
+      Recipe recipe;
+      recipe.repo = repo;
+      pos = repo.find('/');
+      recipe.local_path = repo.substr(pos + 1);
+      std::cout << "git install recipe by keyword : " << repo;
+      if (!recipe_file.empty())
+        std::cout << ", with recipe file: " << recipe_file;
+      std::cout << std::endl;
+      install_recipe(recipe, recipe_file);
       return 0;
     } else if (result.count("search")) {
       std::string repo = result["search"].as<std::string>();
