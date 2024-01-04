@@ -998,6 +998,8 @@ int main(int argc, char **argv) {
         recipe_file = repo.substr(pos + 1) + ".recipe.yaml";
         repo = repo.substr(0, pos);
       }
+      pos = repo.find('/');
+      std::string local_path = repo.substr(pos + 1);
       std::vector<Recipe> res =
           filter_recipes_with_keyword(recipes, repo, true);
       if (res.size()) {
@@ -1006,6 +1008,12 @@ int main(int argc, char **argv) {
           std::cout << ", with recipe file: " << recipe_file;
         std::cout << std::endl;
         delete_recipe(res.at(0), recipe_file);
+      } else if (load_json(cache_dir + sep + ".installed_recipes.json")
+                     .contains(local_path)) {
+        Recipe recipe;
+        recipe.repo = repo;
+        recipe.local_path = local_path;
+        delete_recipe(recipe, recipe_file);
       } else {
         std::cout << "delete recipe by : " << result["delete"].as<std::string>()
                   << " failed ||-_-" << std::endl;
@@ -1017,10 +1025,18 @@ int main(int argc, char **argv) {
       repo = convertToUtf8(repo);
       std::vector<Recipe> res =
           filter_recipes_with_keyword(recipes, repo, true);
+      size_t pos = repo.find('/');
+      std::string local_path = repo.substr(pos + 1);
       if (res.size()) {
         std::cout << "purge recipe by keyword : " << repo;
         std::cout << std::endl;
         delete_recipe(res.at(0), "", true);
+      } else if (load_json(cache_dir + sep + ".installed_recipes.json")
+                     .contains(local_path)) {
+        Recipe recipe;
+        recipe.repo = repo;
+        recipe.local_path = local_path;
+        delete_recipe(recipe, "", true);
       } else {
         std::cout << "purge recipe by : " << result["purge"].as<std::string>()
                   << " failed ||-_-" << std::endl;
