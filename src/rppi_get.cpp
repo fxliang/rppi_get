@@ -607,7 +607,7 @@ filter_recipes_with_keyword(const std::vector<Recipe> &recipes,
 bool load_config() {
   std::string app_path = GetApplicationDirectory();
   std::string config_path = file_exist(parse_path("~/.rppi_config.yaml"))
-                                ? "~/rppi_config.yaml"
+                                ? "~/.rppi_config.yaml"
                                 : app_path + "/rppi_config.yaml";
   if (!file_exist(config_path)) // no configure file found
   {
