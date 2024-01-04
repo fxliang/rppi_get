@@ -524,9 +524,8 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
 // update rppi cache
 int update_rppi(std::string local_path, std::string mirror, std::string proxy) {
   std::string repo_url = mirror + "rime/rppi.git";
-  return clone_or_update_repository(
-      mirror.empty() ? "https://github.com/rime/rime.git" : repo_url.c_str(),
-      local_path.c_str(), proxy.empty() ? nullptr : proxy.c_str());
+  return clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
+                                    proxy.empty() ? nullptr : proxy.c_str());
 }
 // load a json file
 json load_json(const std::string &file_path) {
@@ -630,7 +629,9 @@ bool load_config() {
     proxy = config["proxy"].as<std::string>();
   if (config["mirror"]) {
     mirror = config["mirror"].as<std::string>();
-    if (mirror.back() != '/')
+    if (mirror.empty())
+      mirror = "https://github.com/";
+    else if (mirror.back() != '/')
       mirror.append("/");
   } else {
     mirror = "https://github.com/";
@@ -677,7 +678,9 @@ int main(int argc, char **argv) {
     int retry = 0;
     if (result.count("mirror")) {
       mirror = result["mirror"].as<std::string>();
-      if (mirror.back() != '/')
+      if (mirror.empty())
+        mirror = "https://github.com/";
+      else if (mirror.back() != '/')
         mirror.append("/");
     }
     if (result.count("proxy"))
