@@ -202,38 +202,34 @@ void list_files(const std::filesystem::path &directory) {
 }
 // list files in a directory to a vector for recipe
 void list_files_to_vector(const std::filesystem::path &directory,
-                          VString &files) {
-  std::string pattern = "readme.md|authors|license";
+                          VString &files,
+                          const std::filesystem::path &recipe_file = "") {
+  std::string pattern = "";
+  if (!recipe_file.empty()) {
+    YAML::Node config = YAML::LoadFile(recipe_file.string());
+    std::string install_files = "";
+    if (config["install_files"]) {
+      pattern = config["install_files"].as<std::string>();
+      pattern = std::regex_replace(pattern, std::regex("\\."), "\\.");
+      pattern = std::regex_replace(pattern, std::regex("\\*"), ".*");
+      pattern = std::regex_replace(pattern, std::regex("\\s"), "|");
+      pattern = ".*(" + pattern + ")$";
+#ifdef _WIN32
+      pattern = std::regex_replace(pattern, std::regex("/"), "\\\\");
+#endif
+    }
+  } else
+    pattern = "\\.gitignore|readme.md|authors|license";
+
   std::regex regex(pattern, std::regex_constants::icase);
   for (const auto &entry : std::filesystem::directory_iterator(directory)) {
     if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
-      list_files_to_vector(entry.path(), files);
-    else if (entry.is_regular_file() &&
+      list_files_to_vector(entry.path(), files, recipe_file);
+    else if (recipe_file.empty() && entry.is_regular_file() &&
              !std::regex_match(entry.path().filename().string(), regex))
       files.push_back(entry.path().string());
-  }
-}
-void list_files_to_vector_by_recipe(const std::filesystem::path &directory,
-                                    VString &files,
-                                    const std::filesystem::path &recipe_file) {
-  YAML::Node config = YAML::LoadFile(recipe_file.string());
-  std::string install_files = "";
-  if (config["install_files"]) {
-    install_files = config["install_files"].as<std::string>();
-    install_files = std::regex_replace(install_files, std::regex("\\."), "\\.");
-    install_files = std::regex_replace(install_files, std::regex("\\*"), ".*");
-    install_files = std::regex_replace(install_files, std::regex("\\s"), "|");
-    install_files = ".*(" + install_files + ")$";
-#ifdef _WIN32
-    install_files = std::regex_replace(install_files, std::regex("/"), "\\\\");
-#endif
-  }
-  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
-    if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
-      list_files_to_vector_by_recipe(entry.path(), files, recipe_file);
-    else if (entry.is_regular_file() &&
-             std::regex_match(entry.path().string(),
-                              std::regex(install_files))) {
+    else if (!recipe_file.empty() && entry.is_regular_file() &&
+             std::regex_match(entry.path().string(), regex)) {
       files.push_back(entry.path().string());
     }
   }
@@ -458,17 +454,12 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
   VString files;
   int error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
-  if (!recipe_file.empty()) {
-    std::string recipe_file_path = local_path + sep + recipe_file;
-    if (file_exist(recipe_file_path))
-      list_files_to_vector_by_recipe(local_path, files, recipe_file_path);
-    else {
-      std::cout << "recipe file \"" << recipe_file_path << "\" not exists!"
-                << std::endl;
-      return -1;
-    }
-  } else
-    list_files_to_vector(std::filesystem::path(local_path), files);
+  std::string recipe_file_path =
+      recipe_file.empty() ? "" : local_path + sep + recipe_file;
+  if (!file_exist(recipe_file_path))
+    recipe_file_path = "";
+  list_files_to_vector(std::filesystem::path(local_path), files,
+                       recipe_file_path);
   for (const auto &file : files) {
     std::string target_path =
         user_dir + sep + std::filesystem::relative(file, local_path).string();
