@@ -63,9 +63,21 @@ Usage:
   -c, --clean        clean caches
   -v, --verbose      verbose settings
   -l, --list         list recipes in rppi
+  -m, --mirror arg   configure github mirror
+  -p, --proxy arg    configure git proxy
 ```
 
 ## Examples(windows)
+
+- to run rppi_get.exe with proxy specified in command line, update rppi index and with proxy `http://localhost:8118` for example
+```cmd
+rppi_get.exe -p http://localhost:8118 -u
+```
+
+- to run rppi_get.exe with mirror specified in command line, update rppi index and with mirror `https://hub.yzuu.cf/` for example
+```cmd
+rppi_get.exe -m https://hub.yzuu.cf/ -u
+```
 
 - to update rppi index
 ```cmd
