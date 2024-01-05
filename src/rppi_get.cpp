@@ -274,6 +274,13 @@ bool delete_file(const std::string &_path) {
     return false;
   }
 }
+// check if a directory is empty
+bool is_directory_empty(const std::string &path) {
+  for (auto &_ : std::filesystem::directory_iterator(path)) {
+    return false;
+  }
+  return true;
+}
 // ----------------------------------------------------------------------------
 // libgit2 relate functions
 #define FINALIZE_GIT(error)                                                    \
@@ -475,6 +482,14 @@ json load_json(const std::string &file_path, bool create = false) {
   file.close();
   return j;
 }
+void delete_string_in_json_array(json &j, const std::string &str) {
+  for (auto it = j.begin(); it != j.end(); ++it) {
+    if (*it == str) {
+      it = j.erase(it);
+      break;
+    }
+  }
+}
 bool json_array_contain(const json &j, const std::string &str) {
   bool exists = false;
   for (auto i = 0; i < j.size(); i++) {
@@ -613,6 +628,10 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
         user_dir + sep + std::filesystem::relative(file, local_path).string();
     if (file_exist(target_path)) {
       delete_file(target_path);
+      std::string parent_path =
+          std::filesystem::path(target_path).parent_path().string();
+      if (is_directory_empty(parent_path) && (parent_path != user_dir))
+        delete_directory(parent_path);
       target_path = convertToUtf8(target_path);
       std::cout << "deleted: " << target_path << std::endl;
     }
@@ -650,14 +669,13 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
           delete_file(target_path);
           target_path = convertToUtf8(target_path);
           std::cout << "deleted: " << target_path << std::endl;
+          std::string parent_path =
+              std::filesystem::path(target_path).parent_path().string();
+          if (is_directory_empty(parent_path) && (parent_path != user_dir))
+            delete_directory(parent_path);
         }
-        for (auto it = installed_recipes[dep.substr(pos + 1)].begin();
-             it != installed_recipes[dep.substr(pos + 1)].end(); ++it) {
-          if (*it == target_path) {
-            it = installed_recipes[dep.substr(pos + 1)].erase(it);
-            break;
-          }
-        }
+        delete_string_in_json_array(installed_recipes[dep.substr(pos + 1)],
+                                    target_path);
       }
       if (installed_recipes.contains(dep.substr(pos + 1)))
         installed_recipes.erase(dep.substr(pos + 1));
@@ -682,14 +700,13 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
           delete_file(target_path);
           target_path = convertToUtf8(target_path);
           std::cout << "deleted: " << target_path << std::endl;
+          std::string parent_path =
+              std::filesystem::path(target_path).parent_path().string();
+          if (is_directory_empty(parent_path) && (parent_path != user_dir))
+            delete_directory(parent_path);
         }
-        for (auto it = installed_recipes[dep.substr(pos + 1)].begin();
-             it != installed_recipes[dep.substr(pos + 1)].end(); ++it) {
-          if (*it == target_path) {
-            it = installed_recipes[dep.substr(pos + 1)].erase(it);
-            break;
-          }
-        }
+        delete_string_in_json_array(installed_recipes[dep.substr(pos + 1)],
+                                    target_path);
       }
       VString().swap(files);
       if (installed_recipes.contains(dep.substr(pos + 1)))
