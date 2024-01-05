@@ -1,7 +1,6 @@
 #include <cxxopts.hpp>
 #include <filesystem>
 #include <fstream>
-#include <git2.h>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <regex>
@@ -9,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <yaml-cpp/yaml.h>
+#include "git.hpp"
 #ifdef _WIN32
 #include <Windows.h>
 #include <rpcdce.h>
@@ -338,7 +338,9 @@ int clone_repository(const char *repo_url, const char *local_path,
     clone_opts.fetch_opts.proxy_opts.url = proxy_opts;
   clone_opts.fetch_opts.callbacks.transfer_progress = transfer_progress;
   clone_opts.fetch_opts.callbacks.credentials = credentials_callback;
+#if CHECK_LIBGIT2_VERSION(1, 7)
   clone_opts.fetch_opts.depth = 1;
+#endif
   int error = git_clone(&repo, repo_url, local_path, &clone_opts);
   if (error != 0 && error != GIT_EEXISTS) {
     const git_error *git_error = giterr_last();
