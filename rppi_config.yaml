@@ -1,7 +1,7 @@
 # your proxy setting for libgit2
-proxy: http://localhost:8118
+# proxy: http://localhost:8118
 # your github mirror setting, if your network not so good
-mirror: https://hub.yzuu.cf/
+# mirror: https://hub.yzuu.cf/
 # target user directory
 user_dir: ~/usr_dir
 # cache directory
