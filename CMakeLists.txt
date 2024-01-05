@@ -1,43 +1,58 @@
-# cmake version
 cmake_minimum_required(VERSION 3.15)
-
-# project name
-PROJECT(rppi_get)
-
-# build config
-#set(CMAKE_BUILD_TYPE "Release")
-#set(CMAKE_BUILD_TYPE "Debug")
-
-# for libgit2
-if(MSVC)
-	set(BUILD_SHARED_LIBS ON CACHE BOOL "Build Shared Library (OFF for Static)" FORCE)
-endif()
+project(rppi_get)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(BUILD_TESTS OFF CACHE BOOL "Build Tests using the Clar suite" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "Build the example tree.Build library usage example apps" FORCE)
-set(BUILD_CLI OFF CACHE BOOL "Build the command-line interface." FORCE)
+include(GNUInstallDirs)
 
-# for libgit2 ends
+# options
+option(USE_BUNDLED_CXXOPTS "Use built-in version of cxxopts" ${MSVC})
+option(USE_BUNDLED_JSON "Use built-in version of nlohmann/json" ${MSVC})
+option(USE_BUNDLED_LIBGIT2 "Use built-in version of libgit2" ${MSVC})
+option(USE_BUNDLED_YAMLCPP "Use built-in version of yaml-cpp" ${MSVC})
 
-add_subdirectory(deps/yaml-cpp)
-add_subdirectory(deps/libgit2)
-add_subdirectory(deps/cxxopts)
-add_subdirectory(deps/json)
+# dependencies
+if (USE_BUNDLED_CXXOPTS)
+    add_subdirectory(deps/cxxopts)
+else()
+    find_package(cxxopts REQUIRED)
+endif()
 
-set(LIBGIT2_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/deps/libgit2")
-link_directories(${LIBGIT2_LIB_DIR})
+if (USE_BUNDLED_JSON)
+    set(JSON_BuildTests OFF CACHE INTERNAL "")
+    add_subdirectory(deps/json)
+else()
+    find_package(nlohmann_json REQUIRED)
+endif()
 
-#header path
-INCLUDE_DIRECTORIES (
-	include 
-	deps/cxxopts/include
-	deps/json/include
-	deps/libgit2/include
-)
+if (USE_BUNDLED_LIBGIT2)
+    set(BUILD_TESTS OFF CACHE INTERNAL "")
+    set(BUILD_CLI OFF CACHE INTERNAL "")
+    if (MSVC)
+        set(BUILD_SHARED_LIBS ON CACHE INTERNAL "")
+    endif()
+    add_subdirectory(deps/libgit2)
+    set(LIBGIT2_LIBRARIES libgit2package)
+    set(LIBGIT2_INCLUDE_DIR deps/libgit2/include)
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_search_module(LIBGIT2 REQUIRED libgit2)
+endif()
+
+if (USE_BUNDLED_YAMLCPP)
+    set(YAML_CPP_BUILD_TOOLS OFF CACHE INTERNAL "")
+    set(YAML_CPP_BUILD_TESTS OFF CACHE INTERNAL "")
+    set(YAML_CPP_INSTALL OFF CACHE INTERNAL "")
+    add_subdirectory(deps/yaml-cpp)
+else()
+    find_package(yaml-cpp REQUIRED)
+endif()
+
+if (WIN32)
+    set(WIN32_LIBS shlwapi user32 Rpcrt4)
+endif()
 
 # source directory
 aux_source_directory(./src DIR_SRC)
@@ -48,24 +63,28 @@ set(rppi_get ${DIR_SRC})
 # add executable
 add_executable(${PROJECT_NAME} ${rppi_get})
 
-# add link library
-if(WIN32)
-	target_link_libraries( ${PROJECT_NAME} PRIVATE git2 yaml-cpp shlwapi user32 Rpcrt4)
-else()
-	target_link_libraries( ${PROJECT_NAME} PRIVATE git2 yaml-cpp)
-endif()
+# add link libraries
+target_link_libraries(${PROJECT_NAME}
+    cxxopts::cxxopts
+    ${LIBGIT2_LIBRARIES}
+    nlohmann_json::nlohmann_json
+    yaml-cpp
+    ${WIN32_LIBS}
+)
 
-set(TARGET_FILES
-	${CMAKE_SOURCE_DIR}/rppi_config.yaml
-	)
+# add include directories
+target_include_directories(${PROJECT_NAME} PUBLIC
+    ${LIBGIT2_INCLUDE_DIR}
+)
 
-set(INSTALL_DIR ${CMAKE_SOURCE_DIR}/dist)
+set(TARGET_FILES ${CMAKE_SOURCE_DIR}/rppi_config.yaml)
 
 install(
-	TARGETS ${PROJECT_NAME}
-	DESTINATION ${INSTALL_DIR}
-	)
+    TARGETS ${PROJECT_NAME}
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
 install(
-	FILES ${TARGET_FILES}
-	DESTINATION ${INSTALL_DIR}
-	)
+    FILES ${TARGET_FILES}
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
