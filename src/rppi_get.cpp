@@ -278,6 +278,15 @@ bool is_directory_empty(const std::string &path) {
   }
   return true;
 }
+
+void delete_empty_dir_to(const std::string &dir, std::string &base) {
+  if (dir != base) {
+    if (is_directory_empty(dir)) {
+      delete_directory(dir);
+      delete_empty_dir_to(Path(dir).parent_path().string(), base);
+    }
+  }
+}
 // ----------------------------------------------------------------------------
 // libgit2 relate functions
 #define FINALIZE_GIT(error)                                                    \
@@ -626,8 +635,7 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
     if (file_exist(target_path)) {
       delete_file(target_path);
       std::string parent_path = Path(target_path).parent_path().string();
-      if (is_directory_empty(parent_path) && (parent_path != user_dir))
-        delete_directory(parent_path);
+      delete_empty_dir_to(parent_path, user_dir);
       target_path = convertToUtf8(target_path);
       std::cout << "deleted: " << target_path << std::endl;
     }
@@ -666,11 +674,9 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
           target_path = convertToUtf8(target_path);
           std::cout << "deleted: " << target_path << std::endl;
           std::string parent_path = Path(target_path).parent_path().string();
-          if (is_directory_empty(parent_path) && (parent_path != user_dir))
-            delete_directory(parent_path);
+          delete_empty_dir_to(parent_path, user_dir);
         }
-        delete_str_json(installed_recipes[dep.substr(pos + 1)],
-                                    target_path);
+        delete_str_json(installed_recipes[dep.substr(pos + 1)], target_path);
       }
       if (installed_recipes.contains(dep.substr(pos + 1)))
         installed_recipes.erase(dep.substr(pos + 1));
@@ -696,11 +702,9 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
           target_path = convertToUtf8(target_path);
           std::cout << "deleted: " << target_path << std::endl;
           std::string parent_path = Path(target_path).parent_path().string();
-          if (is_directory_empty(parent_path) && (parent_path != user_dir))
-            delete_directory(parent_path);
+          delete_empty_dir_to(parent_path, user_dir);
         }
-        delete_str_json(installed_recipes[dep.substr(pos + 1)],
-                                    target_path);
+        delete_str_json(installed_recipes[dep.substr(pos + 1)], target_path);
       }
       VString().swap(files);
       if (installed_recipes.contains(dep.substr(pos + 1)))
