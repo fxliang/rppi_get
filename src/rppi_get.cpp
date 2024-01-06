@@ -481,7 +481,7 @@ json load_json(const std::string &file_path, bool create = false) {
   file.close();
   return j;
 }
-void delete_string_in_json_array(json &j, const std::string &str) {
+void delete_str_json(json &j, const std::string &str) {
   for (auto it = j.begin(); it != j.end(); ++it) {
     if (*it == str) {
       it = j.erase(it);
@@ -669,7 +669,7 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
           if (is_directory_empty(parent_path) && (parent_path != user_dir))
             delete_directory(parent_path);
         }
-        delete_string_in_json_array(installed_recipes[dep.substr(pos + 1)],
+        delete_str_json(installed_recipes[dep.substr(pos + 1)],
                                     target_path);
       }
       if (installed_recipes.contains(dep.substr(pos + 1)))
@@ -699,7 +699,7 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
           if (is_directory_empty(parent_path) && (parent_path != user_dir))
             delete_directory(parent_path);
         }
-        delete_string_in_json_array(installed_recipes[dep.substr(pos + 1)],
+        delete_str_json(installed_recipes[dep.substr(pos + 1)],
                                     target_path);
       }
       VString().swap(files);
