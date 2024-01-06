@@ -498,18 +498,49 @@ void delete_str_json(json &j, const std::string &str) {
   }
 }
 bool json_array_contain(const json &j, const std::string &str) {
-  bool exists = false;
   for (auto i = 0; i < j.size(); i++) {
-    if (j[i] == str) {
-      exists = true;
-      break;
-    }
+    if (j[i] == str)
+      return true;
   }
-  return exists;
+  return false;
 }
 // ----------------------------------------------------------------------------
 // recipes processes
 // ----------------------------------------------------------------------------
+int install_recipe_impl(const VString &recipes, const std::string &prompt,
+                        json &installed_recipes) {
+  if (recipes.size()) {
+    for (const auto &dep : recipes) {
+      std::string repo_url = mirror + dep + ".git";
+      size_t pos = dep.find("/");
+      std::string local_path = dep.substr(pos + 1);
+      local_path = (cache_dir + sep + local_path);
+      std::cout << prompt << dep << std::endl;
+      int error = clone_or_update_repository(repo_url.c_str(),
+                                             local_path.c_str(), proxy.c_str());
+      if (error)
+        return error;
+      VString files;
+      list_files_to_vector(Path(local_path), files);
+      if (installed_recipes.contains(dep.substr(pos + 1)))
+        installed_recipes.erase(dep.substr(pos + 1));
+      for (const auto &file : files) {
+        std::string target_path =
+            user_dir + sep +
+            std::filesystem::relative(file, local_path).string();
+        copy_file(file, target_path);
+        target_path = convertToUtf8(target_path);
+        std::cout << "installed: " << target_path << std::endl;
+        bool exists = json_array_contain(installed_recipes[dep.substr(pos + 1)],
+                                         target_path);
+        if (!exists)
+          installed_recipes[dep.substr(pos + 1)].push_back(target_path);
+      }
+      VString().swap(files);
+    }
+  }
+  return 0;
+}
 // install recipe repo
 int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
   std::string repo_url = mirror + recipe.repo + ".git";
@@ -533,7 +564,6 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
   list_files_to_vector(Path(local_path), files, recipe_file_path);
   if (recipe_file.empty() && installed_recipes.contains(recipe.local_path))
     installed_recipes.erase(recipe.local_path);
-
   for (const auto &file : files) {
     std::string target_path =
         user_dir + sep + std::filesystem::relative(file, local_path).string();
@@ -546,60 +576,14 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
       installed_recipes[recipe.local_path].push_back(target_path);
   }
   VString().swap(files);
-  if (recipe.dependencies.size()) {
-    for (const auto &dep : recipe.dependencies) {
-      repo_url = mirror + dep + ".git";
-      size_t pos = dep.find("/");
-      std::string local_path = dep.substr(pos + 1);
-      local_path = (cache_dir + sep + local_path);
-      std::cout << "update dependency : " << dep << std::endl;
-      error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
-                                         proxy.c_str());
-      list_files_to_vector(Path(local_path), files);
-      if (installed_recipes.contains(dep.substr(pos + 1)))
-        installed_recipes.erase(dep.substr(pos + 1));
-      for (const auto &file : files) {
-        std::string target_path =
-            user_dir + sep +
-            std::filesystem::relative(file, local_path).string();
-        copy_file(file, target_path);
-        target_path = convertToUtf8(target_path);
-        std::cout << "installed: " << target_path << std::endl;
-        bool exists = json_array_contain(installed_recipes[dep.substr(pos + 1)],
-                                         target_path);
-        if (!exists)
-          installed_recipes[dep.substr(pos + 1)].push_back(target_path);
-      }
-      VString().swap(files);
-    }
-  }
-  if (recipe.reverseDependencies.size()) {
-    for (const auto &dep : recipe.reverseDependencies) {
-      repo_url = mirror + dep + ".git";
-      size_t pos = dep.find("/");
-      std::string local_path = dep.substr(pos + 1);
-      local_path = (cache_dir + sep + local_path);
-      std::cout << "update reverseDependency : " << dep << std::endl;
-      error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
-                                         proxy.c_str());
-      list_files_to_vector(Path(local_path), files);
-      if (installed_recipes.contains(dep.substr(pos + 1)))
-        installed_recipes.erase(dep.substr(pos + 1));
-      for (const auto &file : files) {
-        std::string target_path =
-            user_dir + sep +
-            std::filesystem::relative(file, local_path).string();
-        copy_file(file, target_path);
-        target_path = convertToUtf8(target_path);
-        std::cout << "installed: " << target_path << std::endl;
-        bool exists = json_array_contain(installed_recipes[dep.substr(pos + 1)],
-                                         target_path);
-        if (!exists)
-          installed_recipes[dep.substr(pos + 1)].push_back(target_path);
-      }
-      VString().swap(files);
-    }
-  }
+  error = install_recipe_impl(recipe.dependencies,
+                              "update dependency: ", installed_recipes);
+  if (error)
+    return error;
+  error = install_recipe_impl(recipe.reverseDependencies,
+                              "update reverse dependency: ", installed_recipes);
+  if (error)
+    return error;
   write_json(installed_recipes, installed_recipes_json);
   return error;
 }
