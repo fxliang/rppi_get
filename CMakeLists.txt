@@ -66,6 +66,10 @@ set(rppi_get ${DIR_SRC})
 # add executable
 add_executable(${PROJECT_NAME} ${rppi_get})
 
+if(MSVC)
+	target_link_options(${PROJECT_NAME} PRIVATE "/LTCG")
+endif()
+
 # add link libraries
 target_link_libraries(${PROJECT_NAME}
     cxxopts::cxxopts
