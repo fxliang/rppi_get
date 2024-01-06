@@ -234,20 +234,6 @@ void list_files_to_vector(const std::filesystem::path &directory,
     }
   }
 }
-// delete directory
-// fix me: some time not works under windows
-void delete_directory(const std::string &_path) {
-  std::filesystem::path path(parse_path(_path));
-  if (!std::filesystem::exists(path))
-    return;
-  for (const auto &entry : std::filesystem::directory_iterator(path)) {
-    if (entry.is_directory())
-      delete_directory(entry.path().string());
-    else
-      std::filesystem::remove(entry.path().string());
-  }
-  std::filesystem::remove(path);
-}
 // copy file, create_directory automatically, overwrite_existing
 bool copy_file(const std::string &source, const std::string &destination) {
   try {
@@ -267,12 +253,26 @@ bool copy_file(const std::string &source, const std::string &destination) {
 bool delete_file(const std::string &_path) {
   try {
     std::filesystem::path path = parse_path(_path);
+	std::filesystem::permissions(path, std::filesystem::perms::owner_write);
     std::filesystem::remove(path);
     return true;
   } catch (const std::filesystem::filesystem_error &e) {
     std::cerr << "Failed to delete file: " << e.what() << std::endl;
     return false;
   }
+}
+// delete directory
+void delete_directory(const std::string &_path) {
+  std::filesystem::path path(parse_path(_path));
+  if (!std::filesystem::exists(path))
+    return;
+  for (const auto &entry : std::filesystem::directory_iterator(path)) {
+    if (entry.is_directory())
+      delete_directory(entry.path().string());
+    else
+      delete_file(entry.path().string());
+  }
+  std::filesystem::remove(path);
 }
 // check if a directory is empty
 bool is_directory_empty(const std::string &path) {
