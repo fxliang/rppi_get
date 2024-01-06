@@ -1,3 +1,4 @@
+#include "git.hpp"
 #include <cxxopts.hpp>
 #include <filesystem>
 #include <fstream>
@@ -8,7 +9,6 @@
 #include <string>
 #include <vector>
 #include <yaml-cpp/yaml.h>
-#include "git.hpp"
 #ifdef _WIN32
 #include <Windows.h>
 #include <rpcdce.h>
@@ -19,6 +19,7 @@
 
 using json = nlohmann::json;
 using VString = std::vector<std::string>;
+using Path = std::filesystem::path;
 
 // ----------------------------------------------------------------------------
 // for terminal_width()
@@ -174,14 +175,14 @@ std::string parse_path(const std::string &path) {
     if (userProfilePath != nullptr)
       homedir_ = std::string(userProfilePath);
     free(userProfilePath);
-    std::filesystem::path homedir = homedir_;
+    Path homedir = homedir_;
 #else
-    std::filesystem::path homedir = std::string(getenv("HOME"));
+    Path homedir = std::string(getenv("HOME"));
 #endif
-    std::filesystem::path _path = homedir.string() + path.substr(1);
+    Path _path = homedir.string() + path.substr(1);
     return std::filesystem::absolute(_path).string();
   } else {
-    std::filesystem::path _path = path;
+    Path _path = path;
     return std::filesystem::absolute(_path).string();
   }
 }
@@ -189,10 +190,9 @@ std::string parse_path(const std::string &path) {
 // filesystem utilities
 // ----------------------------------------------------------------------------
 // check if a file exist
-#define file_exist(file_path)                                                  \
-  std::filesystem::exists(std::filesystem::path(file_path))
+#define file_exist(file_path) std::filesystem::exists(Path(file_path))
 // list files in a directory
-void list_files(const std::filesystem::path &directory) {
+void list_files(const Path &directory) {
   for (const auto &entry : std::filesystem::directory_iterator(directory)) {
     if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
       list_files(entry.path());
@@ -201,9 +201,8 @@ void list_files(const std::filesystem::path &directory) {
   }
 }
 // list files in a directory to a vector for recipe
-void list_files_to_vector(const std::filesystem::path &directory,
-                          VString &files,
-                          const std::filesystem::path &recipe_file = "") {
+void list_files_to_vector(const Path &directory, VString &files,
+                          const Path &recipe_file = "") {
   std::string pattern = "";
   if (!recipe_file.empty()) {
     YAML::Node config = YAML::LoadFile(recipe_file.string());
@@ -237,10 +236,8 @@ void list_files_to_vector(const std::filesystem::path &directory,
 // copy file, create_directory automatically, overwrite_existing
 bool copy_file(const std::string &source, const std::string &destination) {
   try {
-    if (!std::filesystem::exists(
-            std::filesystem::path(destination).parent_path()))
-      std::filesystem::create_directories(
-          std::filesystem::path(destination).parent_path());
+    if (!file_exist(Path(destination).parent_path()))
+      std::filesystem::create_directories(Path(destination).parent_path());
     std::filesystem::copy_file(
         source, destination, std::filesystem::copy_options::overwrite_existing);
     return true;
@@ -252,8 +249,8 @@ bool copy_file(const std::string &source, const std::string &destination) {
 // delete file
 bool delete_file(const std::string &_path) {
   try {
-    std::filesystem::path path = parse_path(_path);
-	std::filesystem::permissions(path, std::filesystem::perms::owner_write);
+    Path path = parse_path(_path);
+    std::filesystem::permissions(path, std::filesystem::perms::owner_write);
     std::filesystem::remove(path);
     return true;
   } catch (const std::filesystem::filesystem_error &e) {
@@ -263,8 +260,8 @@ bool delete_file(const std::string &_path) {
 }
 // delete directory
 void delete_directory(const std::string &_path) {
-  std::filesystem::path path(parse_path(_path));
-  if (!std::filesystem::exists(path))
+  Path path(parse_path(_path));
+  if (!file_exist(path))
     return;
   for (const auto &entry : std::filesystem::directory_iterator(path)) {
     if (entry.is_directory())
@@ -436,7 +433,7 @@ int update_repository(const char *repo_path, const char *proxy_opts) {
 int clone_or_update_repository(const char *repo_url, const char *local_path,
                                const char *proxy_opts) {
   int error = 0;
-  if (std::filesystem::exists(local_path)) {
+  if (file_exist(local_path)) {
     error = update_repository(local_path, proxy_opts);
     // not a git directory
     if (error == GIT_ENOTFOUND) {
@@ -466,7 +463,7 @@ int write_json(const json &j, const std::string &file) {
 }
 // load a json file
 json load_json(const std::string &file_path, bool create = false) {
-  if (!std::filesystem::exists(file_path)) {
+  if (!file_exist(file_path)) {
     if (create)
       write_json(json(), file_path);
     return json();
@@ -526,8 +523,7 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
       recipe_file.empty() ? "" : local_path + sep + recipe_file;
   if (!file_exist(recipe_file_path))
     recipe_file_path = "";
-  list_files_to_vector(std::filesystem::path(local_path), files,
-                       recipe_file_path);
+  list_files_to_vector(Path(local_path), files, recipe_file_path);
   if (recipe_file.empty() && installed_recipes.contains(recipe.local_path))
     installed_recipes.erase(recipe.local_path);
 
@@ -552,7 +548,7 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
       std::cout << "update dependency : " << dep << std::endl;
       error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
-      list_files_to_vector(std::filesystem::path(local_path), files);
+      list_files_to_vector(Path(local_path), files);
       if (installed_recipes.contains(dep.substr(pos + 1)))
         installed_recipes.erase(dep.substr(pos + 1));
       for (const auto &file : files) {
@@ -579,7 +575,7 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
       std::cout << "update reverseDependency : " << dep << std::endl;
       error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
-      list_files_to_vector(std::filesystem::path(local_path), files);
+      list_files_to_vector(Path(local_path), files);
       if (installed_recipes.contains(dep.substr(pos + 1)))
         installed_recipes.erase(dep.substr(pos + 1));
       for (const auto &file : files) {
@@ -623,15 +619,13 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
       recipe_file.empty() ? "" : local_path + sep + recipe_file;
   if (!file_exist(recipe_file_path))
     recipe_file_path = "";
-  list_files_to_vector(std::filesystem::path(local_path), files,
-                       recipe_file_path);
+  list_files_to_vector(Path(local_path), files, recipe_file_path);
   for (const auto &file : files) {
     std::string target_path =
         user_dir + sep + std::filesystem::relative(file, local_path).string();
     if (file_exist(target_path)) {
       delete_file(target_path);
-      std::string parent_path =
-          std::filesystem::path(target_path).parent_path().string();
+      std::string parent_path = Path(target_path).parent_path().string();
       if (is_directory_empty(parent_path) && (parent_path != user_dir))
         delete_directory(parent_path);
       target_path = convertToUtf8(target_path);
@@ -662,7 +656,7 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
       std::cout << "update dependency : " << dep << std::endl;
       error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
-      list_files_to_vector(std::filesystem::path(local_path), files);
+      list_files_to_vector(Path(local_path), files);
       for (const auto &file : files) {
         std::string target_path =
             user_dir + sep +
@@ -671,8 +665,7 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
           delete_file(target_path);
           target_path = convertToUtf8(target_path);
           std::cout << "deleted: " << target_path << std::endl;
-          std::string parent_path =
-              std::filesystem::path(target_path).parent_path().string();
+          std::string parent_path = Path(target_path).parent_path().string();
           if (is_directory_empty(parent_path) && (parent_path != user_dir))
             delete_directory(parent_path);
         }
@@ -693,7 +686,7 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
       std::cout << "update reverseDependency : " << dep << std::endl;
       error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                          proxy.c_str());
-      list_files_to_vector(std::filesystem::path(local_path), files);
+      list_files_to_vector(Path(local_path), files);
       for (const auto &file : files) {
         std::string target_path =
             user_dir + sep +
@@ -702,8 +695,7 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
           delete_file(target_path);
           target_path = convertToUtf8(target_path);
           std::cout << "deleted: " << target_path << std::endl;
-          std::string parent_path =
-              std::filesystem::path(target_path).parent_path().string();
+          std::string parent_path = Path(target_path).parent_path().string();
           if (is_directory_empty(parent_path) && (parent_path != user_dir))
             delete_directory(parent_path);
         }
@@ -909,8 +901,8 @@ int main(int argc, char **argv) {
       std::cout << options.help() << std::endl;
       return 0;
     } else if (result.count("clean")) {
-      std::filesystem::path directory = cache_dir;
-      if (std::filesystem::exists(cache_dir))
+      Path directory = cache_dir;
+      if (file_exist(cache_dir))
         for (const auto &entry :
              std::filesystem::directory_iterator(directory)) {
           if (entry.is_directory() && entry.path().filename() != "." &&
@@ -926,7 +918,7 @@ int main(int argc, char **argv) {
       int error = update_rppi(cache_dir + "/rppi", mirror, proxy);
       retry++;
       if (error == GIT_EUNBORNBRANCH) { // get current ref head failed
-        if (std::filesystem::exists(cache_dir + sep + "rppi")) {
+        if (file_exist(cache_dir + sep + "rppi")) {
           delete_directory(cache_dir + sep + "rppi");
           goto updaterppi;
         }
