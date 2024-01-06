@@ -15,7 +15,7 @@ output in `build/rppi_get`, copy and play with it. I am not a good linux user, s
 
 ### windows
 
-you can download the latest artifact of main branch, in [Actions](https://github.com/fxliang/actions)
+you can download the latest artifact of main branch, in [Actions](https://github.com/fxliang/rppi_get/actions)
 
 or install cmake, git, and Visual Studio or ninja+Mingw, follow steps bellow
 
