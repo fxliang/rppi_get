@@ -62,7 +62,7 @@ struct Recipe {
 // ----------------------------------------------------------------------------
 // global vars
 static int bar_width = 0;
-std::string proxy, mirror, user_dir, cache_dir;
+std::string proxy, mirror, user_dir, cache_dir, installed_recipes_json;
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
@@ -433,8 +433,7 @@ int update_repository(const char *repo_path, const char *proxy_opts) {
       git_repository_set_head(repo, git_reference_name(origin_ref));
     }
   } else
-    std::cout << "local is up to date.\n";
-  // FINALIZE_GIT(0);
+    std::cout << "local is up to date.";
   git_repository_free(repo);
   git_libgit2_shutdown();
   return error;
@@ -525,8 +524,7 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
     return error;
   }
   // load cache_dir/.installed_recipes.json, create one if not exists
-  json installed_recipes =
-      load_json(parse_path(cache_dir + sep + ".installed_recipes.json"), true);
+  json installed_recipes = load_json(installed_recipes_json, true);
 
   std::string recipe_file_path =
       recipe_file.empty() ? "" : local_path + sep + recipe_file;
@@ -602,118 +600,61 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
       VString().swap(files);
     }
   }
-  write_json(installed_recipes,
-             parse_path(cache_dir + sep + ".installed_recipes.json"));
+  write_json(installed_recipes, installed_recipes_json);
   return error;
+}
+// delete recipe repo impl
+void delete_recipe_impl(const VString &recipes, const std::string &prompt,
+                        json &installed_recipes) {
+  if (recipes.size()) {
+    for (const auto &dep : recipes) {
+      std::string repo_url = mirror + dep + ".git";
+      size_t pos = dep.find("/");
+      std::string local_path = dep.substr(pos + 1);
+      local_path = (cache_dir + sep + local_path);
+      std::cout << prompt << dep << std::endl;
+      int error = clone_or_update_repository(repo_url.c_str(),
+                                             local_path.c_str(), proxy.c_str());
+      VString files;
+      list_files_to_vector(Path(local_path), files);
+      for (const auto &file : files) {
+        std::string target_path =
+            user_dir + sep +
+            std::filesystem::relative(file, local_path).string();
+        if (file_exist(target_path)) {
+          delete_file(target_path);
+          target_path = convertToUtf8(target_path);
+          std::cout << "deleted: " << target_path << std::endl;
+          std::string parent_path = Path(target_path).parent_path().string();
+          delete_empty_dir_to(parent_path, user_dir);
+        }
+        delete_str_json(installed_recipes[dep.substr(pos + 1)], target_path);
+      }
+      if (installed_recipes.contains(dep.substr(pos + 1)))
+        installed_recipes.erase(dep.substr(pos + 1));
+      VString().swap(files);
+    }
+  }
 }
 // delete recipe repo
 int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
                   bool purge = false) {
-  std::string repo_url = mirror + recipe.repo + ".git";
-  std::string local_path = (cache_dir + sep + recipe.local_path);
-  std::cout << "update recipe : " << recipe.repo << std::endl;
-  VString files;
-  int error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
-                                         proxy.c_str());
-  if (error) {
-    std::cerr << "clone_or_update_repository " << repo_url << " to "
-              << local_path << " failed!" << std::endl;
-    return error;
-  }
-  // load cache_dir/.installed_recipes.json, create one if not exists
-  json installed_recipes =
-      load_json(parse_path(cache_dir + sep + ".installed_recipes.json"), true);
-
-  std::string recipe_file_path =
-      recipe_file.empty() ? "" : local_path + sep + recipe_file;
-  if (!file_exist(recipe_file_path))
-    recipe_file_path = "";
-  list_files_to_vector(Path(local_path), files, recipe_file_path);
-  for (const auto &file : files) {
-    std::string target_path =
-        user_dir + sep + std::filesystem::relative(file, local_path).string();
-    if (file_exist(target_path)) {
-      delete_file(target_path);
-      std::string parent_path = Path(target_path).parent_path().string();
-      delete_empty_dir_to(parent_path, user_dir);
-      target_path = convertToUtf8(target_path);
-      std::cout << "deleted: " << target_path << std::endl;
-    }
-    for (auto it = installed_recipes[recipe.local_path].begin();
-         it != installed_recipes[recipe.local_path].end(); ++it) {
-      if (*it == target_path) {
-        it = installed_recipes[recipe.local_path].erase(it);
-        break;
-      }
-    }
-  }
-  if (installed_recipes[recipe.local_path].empty())
-    installed_recipes.erase(recipe.local_path);
-  VString().swap(files);
+  // load cache_dir/.installed_recipes.json
+  json installed_recipes = load_json(installed_recipes_json);
+  VString recipes;
+  recipes.push_back(recipe.repo);
+  delete_recipe_impl(recipes, "update recipe: ", installed_recipes);
+  VString().swap(recipes);
   if (!purge) {
-    write_json(installed_recipes,
-               parse_path(cache_dir + sep + ".installed_recipes.json"));
+    write_json(installed_recipes, installed_recipes_json);
     return 0;
   }
-  if (recipe.dependencies.size()) {
-    for (const auto &dep : recipe.dependencies) {
-      repo_url = mirror + dep + ".git";
-      size_t pos = dep.find("/");
-      std::string local_path = dep.substr(pos + 1);
-      local_path = (cache_dir + sep + local_path);
-      std::cout << "update dependency : " << dep << std::endl;
-      error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
-                                         proxy.c_str());
-      list_files_to_vector(Path(local_path), files);
-      for (const auto &file : files) {
-        std::string target_path =
-            user_dir + sep +
-            std::filesystem::relative(file, local_path).string();
-        if (file_exist(target_path)) {
-          delete_file(target_path);
-          target_path = convertToUtf8(target_path);
-          std::cout << "deleted: " << target_path << std::endl;
-          std::string parent_path = Path(target_path).parent_path().string();
-          delete_empty_dir_to(parent_path, user_dir);
-        }
-        delete_str_json(installed_recipes[dep.substr(pos + 1)], target_path);
-      }
-      if (installed_recipes.contains(dep.substr(pos + 1)))
-        installed_recipes.erase(dep.substr(pos + 1));
-      VString().swap(files);
-    }
-  }
-  if (recipe.reverseDependencies.size()) {
-    for (const auto &dep : recipe.reverseDependencies) {
-      repo_url = mirror + dep + ".git";
-      size_t pos = dep.find("/");
-      std::string local_path = dep.substr(pos + 1);
-      local_path = (cache_dir + sep + local_path);
-      std::cout << "update reverseDependency : " << dep << std::endl;
-      error = clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
-                                         proxy.c_str());
-      list_files_to_vector(Path(local_path), files);
-      for (const auto &file : files) {
-        std::string target_path =
-            user_dir + sep +
-            std::filesystem::relative(file, local_path).string();
-        if (file_exist(target_path)) {
-          delete_file(target_path);
-          target_path = convertToUtf8(target_path);
-          std::cout << "deleted: " << target_path << std::endl;
-          std::string parent_path = Path(target_path).parent_path().string();
-          delete_empty_dir_to(parent_path, user_dir);
-        }
-        delete_str_json(installed_recipes[dep.substr(pos + 1)], target_path);
-      }
-      VString().swap(files);
-      if (installed_recipes.contains(dep.substr(pos + 1)))
-        installed_recipes.erase(dep.substr(pos + 1));
-    }
-  }
-  write_json(installed_recipes,
-             parse_path(cache_dir + sep + ".installed_recipes.json"));
-  return error;
+  delete_recipe_impl(recipe.dependencies,
+                     "update dependency: ", installed_recipes);
+  delete_recipe_impl(recipe.reverseDependencies,
+                     "update reverse dependency: ", installed_recipes);
+  write_json(installed_recipes, installed_recipes_json);
+  return 0;
 }
 // update rppi cache
 int update_rppi(std::string local_path, std::string mirror, std::string proxy) {
@@ -842,6 +783,7 @@ bool load_config() {
       return false;
     }
   }
+  installed_recipes_json = user_dir + sep + ".installed_recipes.json";
   return true;
 }
 // main function
@@ -931,8 +873,7 @@ int main(int argc, char **argv) {
         return 0;
     } else if (result.count("installed")) {
       std::cout << "recipes installed:" << std::endl;
-      json j =
-          load_json(parse_path(cache_dir + sep + ".installed_recipes.json"));
+      json j = load_json(installed_recipes_json);
       for (auto it = j.begin(); it != j.end(); ++it)
         std::cout << "[*] " << it.key() << std::endl;
       return 0;
@@ -1023,8 +964,7 @@ int main(int argc, char **argv) {
           std::cout << ", with recipe file: " << recipe_file;
         std::cout << std::endl;
         delete_recipe(res.at(0), recipe_file);
-      } else if (load_json(cache_dir + sep + ".installed_recipes.json")
-                     .contains(local_path)) {
+      } else if (load_json(installed_recipes_json).contains(local_path)) {
         Recipe recipe;
         recipe.repo = repo;
         recipe.local_path = local_path;
@@ -1046,8 +986,7 @@ int main(int argc, char **argv) {
         std::cout << "purge recipe by keyword : " << repo;
         std::cout << std::endl;
         delete_recipe(res.at(0), "", true);
-      } else if (load_json(cache_dir + sep + ".installed_recipes.json")
-                     .contains(local_path)) {
+      } else if (load_json(installed_recipes_json).contains(local_path)) {
         Recipe recipe;
         recipe.repo = repo;
         recipe.local_path = local_path;
