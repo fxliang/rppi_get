@@ -46,7 +46,16 @@ static inline size_t terminal_width() { return terminal_size().second; }
 // for terminal_width() ends
 // ----------------------------------------------------------------------------
 
-struct Recipe {
+class Recipe {
+public:
+  Recipe() {}
+  Recipe(const json &j, const std::string &_category) { fromJson(j, category); }
+  ~Recipe() {
+    VString().swap(labels);
+    VString().swap(schemas);
+    VString().swap(dependencies);
+    VString().swap(reverseDependencies);
+  }
   std::string repo;
   std::string branch;
   std::string name;
@@ -57,8 +66,26 @@ struct Recipe {
   VString reverseDependencies;
   std::string license;
   std::string local_path;
+  void fromJson(const json &j, const std::string &_category) {
+    repo = j["repo"];
+    if (j.contains("branch"))
+      branch = j["branch"];
+    name = j["name"];
+    category = _category;
+    if (j.contains("labels"))
+      labels = j["labels"].get<VString>();
+    schemas = j["schemas"].get<VString>();
+    if (j.contains("dependencies"))
+      dependencies = j["dependencies"].get<VString>();
+    if (j.contains("reverseDependencies"))
+      reverseDependencies = j["reverseDependencies"].get<VString>();
+    if (j.contains("license"))
+      license = j["license"];
+    size_t pos = repo.find("/");
+    local_path = repo.substr(pos + 1);
+  }
 };
-
+using VRecipe = std::vector<Recipe>;
 // ----------------------------------------------------------------------------
 // global vars
 static int bar_width = 0;
@@ -67,17 +94,15 @@ std::string proxy, mirror, user_dir, cache_dir, installed_recipes_json;
 
 // ----------------------------------------------------------------------------
 // for utf8 output in console esp for win32
+inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
 #ifdef _WIN32
-inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
   unsigned int cp = GetConsoleOutputCP();
   SetConsoleOutputCP(codepage);
   return cp;
-}
 #else
-inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
   return 0;
-}
 #endif /* _WIN32 */
+}
 
 // ----------------------------------------------------------------------------
 // GetApplicationDirectory
@@ -160,6 +185,24 @@ void SetConsoleColor(int color) {
   SetConsoleTextAttribute(hConsole, color);
 }
 #endif // for console text color in win32 end
+
+#ifdef _WIN32
+#define COLOR_GREEN FOREGROUND_GREEN
+#define MSG_WITH_COLOR(msg, color)                                             \
+  {                                                                            \
+    SetConsoleColor(color);                                                    \
+    std::cout << msg;                                                          \
+    SetConsoleColor(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);      \
+  }
+#else
+#define COLOR_GREEN "\033[32m"
+#define MSG_WITH_COLOR(msg, color) std::cout << color << msg << "\033[0m"
+#endif
+#define MSG_WITH_COLOR_ENDL(msg, color)                                        \
+  {                                                                            \
+    MSG_WITH_COLOR(msg, color);                                                \
+    std::cout << std::endl;                                                    \
+  }
 // ----------------------------------------------------------------------------
 // parse path to abs
 #ifdef _WIN32
@@ -273,9 +316,8 @@ void delete_directory(const std::string &_path) {
 }
 // check if a directory is empty
 bool is_directory_empty(const std::string &path) {
-  for (auto &_ : std::filesystem::directory_iterator(path)) {
+  for (auto &_ : std::filesystem::directory_iterator(path))
     return false;
-  }
   return true;
 }
 
@@ -289,17 +331,22 @@ void delete_empty_dir_to(const std::string &dir, std::string &base) {
 }
 // ----------------------------------------------------------------------------
 // libgit2 relate functions
-#define FINALIZE_GIT(error)                                                    \
+#define FINALIZE_GIT(error, repo)                                              \
   {                                                                            \
     std::cout << std::endl;                                                    \
     git_repository_free(repo);                                                 \
     git_libgit2_shutdown();                                                    \
     return error;                                                              \
   }
+#define IF_ERROR_MSG_AND_FINALIZE(error, repo, msg)                            \
+  if (error) {                                                                 \
+    std::cout << msg << error << std::endl;                                    \
+    FINALIZE_GIT(error, repo);                                                 \
+  }
 // process bar for git fetch
 int transfer_progress(const git_transfer_progress *stats, void *payload) {
   static int last_percent = -1;
-  int barWidth = bar_width; // 50;
+  int barWidth = bar_width;
   float percentage =
       static_cast<float>(stats->received_objects) / stats->total_objects * 100;
   if (static_cast<int>(percentage) != last_percent) {
@@ -307,17 +354,9 @@ int transfer_progress(const git_transfer_progress *stats, void *payload) {
     std::cout << "[";
     int pos = barWidth * percentage / 100;
     for (int i = 0; i < barWidth; ++i) {
-      if (i < pos)
-#ifndef _WIN32
-        std::cout << "\033[32m█\033[0m";
-#else
-      {
-        SetConsoleColor(FOREGROUND_GREEN);
-        std::cout << "\xe2\x96\x88";
-        SetConsoleColor(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-      }
-#endif
-      else if (i == pos)
+      if (i < pos) {
+        MSG_WITH_COLOR("\xe2\x96\x88", COLOR_GREEN);
+      } else if (i == pos)
         std::cout << ">";
       else
         std::cout << " ";
@@ -360,62 +399,44 @@ int update_repository(const char *repo_path, const char *proxy_opts) {
   git_libgit2_init();
   git_repository *repo = NULL;
   int error = git_repository_open(&repo, repo_path);
-  if (error) {
-    std::cout << "open repo error " << error << std::endl;
-    FINALIZE_GIT(error);
-  }
+  IF_ERROR_MSG_AND_FINALIZE(error, repo, "open repo error: ");
   git_reference *head = nullptr;
   error = git_repository_head(&head, repo);
-  if (error) {
-    std::cout << "get current head failed: " << error << std::endl;
-    FINALIZE_GIT(error);
-  }
+  IF_ERROR_MSG_AND_FINALIZE(error, repo, "get current head failed: ");
   const char *branch_name = git_reference_name(head);
   if (branch_name == nullptr) {
     std::cout << "get current branch name failed: " << error << std::endl;
-    FINALIZE_GIT(error);
+    FINALIZE_GIT(error, repo);
   }
   git_remote *remote = nullptr;
   error = git_remote_lookup(&remote, repo, "origin");
-  if (error) {
-    std::cout << "lookup remote origin error " << error << std::endl;
-    FINALIZE_GIT(error);
-  }
+  IF_ERROR_MSG_AND_FINALIZE(error, repo, "lookup remote origin error: ");
   git_fetch_options fetch_opts = GIT_FETCH_OPTIONS_INIT;
   if (proxy_opts)
     fetch_opts.proxy_opts.url = proxy_opts;
   fetch_opts.callbacks.transfer_progress = transfer_progress;
   error = git_remote_fetch(remote, NULL, &fetch_opts, NULL);
-  if (error) {
-    std::cout << "fetch remote origin error " << error << std::endl;
-    FINALIZE_GIT(error);
-  }
+  IF_ERROR_MSG_AND_FINALIZE(error, repo, "fetch remote origin error: ");
   size_t pos = std::string(branch_name).find_last_of("/");
   std::string bn = std::string(branch_name).substr(pos + 1);
   git_reference *local_ref = nullptr;
   git_reference *origin_ref = nullptr;
   error = git_branch_lookup(&local_ref, repo, bn.c_str(), GIT_BRANCH_LOCAL);
-  if (error) {
-    std::cout << "error git_branch_lookup " << bn.c_str() << std::endl;
-    FINALIZE_GIT(error);
-  }
+  IF_ERROR_MSG_AND_FINALIZE(error, repo, "error git_branch_lookup: ");
   std::string origin_branch_name = "origin/" + bn;
   error = git_branch_lookup(&origin_ref, repo, origin_branch_name.c_str(),
                             GIT_BRANCH_REMOTE);
-  if (error) {
-    std::cout << "error git_branch_lookup " << origin_branch_name << std::endl;
-    FINALIZE_GIT(error);
-  }
+  IF_ERROR_MSG_AND_FINALIZE(error, repo, "error git_branch_lookup: ");
   git_annotated_commit *local_commit = nullptr;
   git_annotated_commit *origin_commit = nullptr;
   git_annotated_commit_from_ref(&local_commit, repo, local_ref);
   git_annotated_commit_from_ref(&origin_commit, repo, origin_ref);
   git_oid local_oid;
   git_oid remote_oid;
-  error =
-      git_reference_name_to_id(&local_oid, repo, git_reference_name(local_ref));
-  error = git_reference_name_to_id(&remote_oid, repo,
-                                   git_reference_name(origin_ref));
+  const char *local_ref_name = git_reference_name(local_ref);
+  const char *origin_ref_name = git_reference_name(origin_ref);
+  error = git_reference_name_to_id(&local_oid, repo, local_ref_name);
+  error = git_reference_name_to_id(&remote_oid, repo, origin_ref_name);
   if (!std::equal(local_oid.id, local_oid.id + sizeof(local_oid),
                   remote_oid.id)) {
     error = git_graph_descendant_of(repo, &remote_oid, &local_oid);
@@ -427,7 +448,7 @@ int update_repository(const char *repo_path, const char *proxy_opts) {
                                        "Fast-forward");
     } else if (error < 0) {
       std::cout << "error git_graph_descendant_of " << error << std::endl;
-      FINALIZE_GIT(error);
+      FINALIZE_GIT(error, repo);
     } else if (!error) {
       std::cout << "not fastcforwardable " << std::endl;
       git_repository_set_head(repo, git_reference_name(origin_ref));
@@ -509,7 +530,8 @@ bool json_array_contain(const json &j, const std::string &str) {
 // ----------------------------------------------------------------------------
 int install_recipe_impl(const VString &recipes, const std::string &prompt,
                         json &installed_recipes,
-                        const std::string &recipe_file = "") {
+                        const std::string &recipe_file = "",
+                        bool install = true) {
   if (recipes.size()) {
     for (const auto &dep : recipes) {
       std::string repo_url = mirror + dep + ".git";
@@ -531,20 +553,34 @@ int install_recipe_impl(const VString &recipes, const std::string &prompt,
           recipe_file_path = "";
         list_files_to_vector(Path(local_path), files, recipe_file_path);
       };
-      if (installed_recipes.contains(dep.substr(pos + 1)))
+      if (install && installed_recipes.contains(dep.substr(pos + 1)))
         installed_recipes.erase(dep.substr(pos + 1));
       for (const auto &file : files) {
         std::string target_path =
             user_dir + sep +
             std::filesystem::relative(file, local_path).string();
-        copy_file(file, target_path);
-        target_path = convertToUtf8(target_path);
-        std::cout << "installed: " << target_path << std::endl;
-        bool exists = json_array_contain(installed_recipes[dep.substr(pos + 1)],
-                                         target_path);
-        if (!exists)
-          installed_recipes[dep.substr(pos + 1)].push_back(target_path);
+        if (install) {
+          copy_file(file, target_path);
+          target_path = convertToUtf8(target_path);
+          std::cout << "installed: " << target_path << std::endl;
+          bool exists = json_array_contain(
+              installed_recipes[dep.substr(pos + 1)], target_path);
+          if (!exists)
+            installed_recipes[dep.substr(pos + 1)].push_back(target_path);
+        } else {
+          if (file_exist(target_path)) {
+            delete_file(target_path);
+            target_path = convertToUtf8(target_path);
+            std::cout << "deleted: " << target_path << std::endl;
+            std::string parent_path = Path(target_path).parent_path().string();
+            delete_empty_dir_to(parent_path, user_dir);
+            delete_str_json(installed_recipes[dep.substr(pos + 1)],
+                            target_path);
+          }
+        }
       }
+      if (!install && installed_recipes.contains(dep.substr(pos + 1)))
+        installed_recipes.erase(dep.substr(pos + 1));
       VString().swap(files);
     }
   }
@@ -571,65 +607,24 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
   write_json(installed_recipes, installed_recipes_json);
   return error;
 }
-// delete recipe repo impl
-void delete_recipe_impl(const VString &recipes, const std::string &prompt,
-                        json &installed_recipes,
-                        const std::string &recipe_file = "") {
-  if (recipes.size()) {
-    for (const auto &dep : recipes) {
-      std::string repo_url = mirror + dep + ".git";
-      size_t pos = dep.find("/");
-      std::string local_path = dep.substr(pos + 1);
-      local_path = (cache_dir + sep + local_path);
-      std::cout << prompt << dep << std::endl;
-      int error = clone_or_update_repository(repo_url.c_str(),
-                                             local_path.c_str(), proxy.c_str());
-      VString files;
-      if (recipe_file.empty())
-        list_files_to_vector(Path(local_path), files);
-      else {
-        std::string recipe_file_path =
-            recipe_file.empty() ? "" : local_path + sep + recipe_file;
-        if (!file_exist(recipe_file_path))
-          recipe_file_path = "";
-        list_files_to_vector(Path(local_path), files, recipe_file_path);
-      };
-      for (const auto &file : files) {
-        std::string target_path =
-            user_dir + sep +
-            std::filesystem::relative(file, local_path).string();
-        if (file_exist(target_path)) {
-          delete_file(target_path);
-          target_path = convertToUtf8(target_path);
-          std::cout << "deleted: " << target_path << std::endl;
-          std::string parent_path = Path(target_path).parent_path().string();
-          delete_empty_dir_to(parent_path, user_dir);
-        }
-        delete_str_json(installed_recipes[dep.substr(pos + 1)], target_path);
-      }
-      if (installed_recipes.contains(dep.substr(pos + 1)))
-        installed_recipes.erase(dep.substr(pos + 1));
-      VString().swap(files);
-    }
-  }
-}
 // delete recipe repo
 int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
                   bool purge = false) {
   // load cache_dir/.installed_recipes.json
   json installed_recipes = load_json(installed_recipes_json);
   VString recipes(1, recipe.repo);
-  delete_recipe_impl(recipes, "update recipe: ", installed_recipes,
-                     purge ? "" : recipe_file);
+  install_recipe_impl(recipes, "update recipe: ", installed_recipes,
+                      purge ? "" : recipe_file, false);
   VString().swap(recipes);
   if (!purge) {
     write_json(installed_recipes, installed_recipes_json);
     return 0;
   }
-  delete_recipe_impl(recipe.dependencies,
-                     "update dependency: ", installed_recipes);
-  delete_recipe_impl(recipe.reverseDependencies,
-                     "update reverse dependency: ", installed_recipes);
+  install_recipe_impl(recipe.dependencies,
+                      "update dependency: ", installed_recipes, "", false);
+  install_recipe_impl(recipe.reverseDependencies,
+                      "update reverse dependency: ", installed_recipes, "",
+                      false);
   write_json(installed_recipes, installed_recipes_json);
   return 0;
 }
@@ -641,36 +636,15 @@ int update_rppi(std::string local_path, std::string mirror, std::string proxy) {
 }
 // parse rppi index.json to get Recipe vector
 void parse_index_rppi(const std::string &file_dir, const std::string &category,
-                      std::vector<Recipe> &recipes) {
+                      VRecipe &recipes) {
   json j = load_json(file_dir + "/index.json");
   if (j.contains("recipes")) {
-    for (const auto &recipe : j["recipes"]) {
-      Recipe _recipe;
-      _recipe.repo = recipe["repo"];
-      size_t pos = _recipe.repo.find("/");
-      _recipe.local_path = _recipe.repo.substr(pos + 1);
-      _recipe.name = recipe["name"];
-      if (recipe.contains("labels"))
-        for (const auto &l : recipe["labels"])
-          _recipe.labels.push_back(l);
-      if (recipe.contains("schemas"))
-        for (const auto &s : recipe["schemas"])
-          _recipe.schemas.push_back(s);
-      if (recipe.contains("dependencies"))
-        for (const auto &d : recipe["dependencies"])
-          _recipe.dependencies.push_back(d);
-      if (recipe.contains("reverseDependencies"))
-        for (const auto &d : recipe["reverseDependencies"])
-          _recipe.reverseDependencies.push_back(d);
-      if (recipe.contains("license"))
-        _recipe.license = recipe["license"];
-      _recipe.category = category;
-      recipes.push_back(_recipe);
-    }
+    for (const auto &recipe : j["recipes"])
+      recipes.push_back(Recipe(recipe, category));
   } else if (j.contains("categories")) {
     for (const auto &cat : j["categories"]) {
       parse_index_rppi(file_dir + sep + std::string(cat["key"]),
-                       category + sep + std::string(cat["key"]), recipes);
+                       category + "/" + std::string(cat["key"]), recipes);
     }
   }
 }
@@ -688,7 +662,7 @@ std::string join_string_vector(const VString &string_vector,
   return res;
 }
 // print recipes info
-void print_recipes(const std::vector<Recipe> &recipes) {
+void print_recipes(const VRecipe &recipes) {
   for (const auto &r : recipes)
     std::cout << "name: " << r.name << ", repo: "
               << r.repo
@@ -700,10 +674,10 @@ void print_recipes(const std::vector<Recipe> &recipes) {
               << std::endl;
 }
 // filter recipes with keyword, for recipe searching
-std::vector<Recipe>
-filter_recipes_with_keyword(const std::vector<Recipe> &recipes,
-                            const std::string &keyword, bool strict = false) {
-  std::vector<Recipe> res;
+VRecipe filter_recipes_with_keyword(const VRecipe &recipes,
+                                    const std::string &keyword,
+                                    bool strict = false) {
+  VRecipe res;
   const std::regex regex =
       std::regex(".*" + keyword + ".*", std::regex_constants::icase);
   for (const auto &r : recipes) {
@@ -796,29 +770,14 @@ int main(int argc, char **argv) {
     if (result.count("proxy"))
       proxy = result["proxy"].as<std::string>();
     if (result.count("verbose")) {
-#ifdef _WIN32
       std::cout << "mirror: ";
-      SetConsoleColor(FOREGROUND_GREEN);
-      std::cout << mirror << std::endl;
-      SetConsoleColor(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+      MSG_WITH_COLOR_ENDL(mirror, COLOR_GREEN);
       std::cout << "proxy: ";
-      SetConsoleColor(FOREGROUND_GREEN);
-      std::cout << proxy << std::endl;
-      SetConsoleColor(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+      MSG_WITH_COLOR_ENDL(proxy, COLOR_GREEN);
       std::cout << "cache directory: ";
-      SetConsoleColor(FOREGROUND_GREEN);
-      std::cout << cache_dir << std::endl;
-      SetConsoleColor(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+      MSG_WITH_COLOR_ENDL(cache_dir, COLOR_GREEN);
       std::cout << "user directory: ";
-      SetConsoleColor(FOREGROUND_GREEN);
-      std::cout << user_dir << std::endl;
-      SetConsoleColor(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-#else
-      printf(
-          "mirror: \033[32m%s\033[0m\nproxy: \033[32m%s\033[0m\ncache "
-          "directory: \033[32m%s\033[0m\nuser directory: \033[32m%s\033[0m\n",
-          mirror.c_str(), proxy.c_str(), cache_dir.c_str(), user_dir.c_str());
-#endif
+      MSG_WITH_COLOR_ENDL(user_dir, COLOR_GREEN);
     }
     if (argc == 1 || result.count("help")) {
       std::cout << options.help() << std::endl;
@@ -840,12 +799,6 @@ int main(int argc, char **argv) {
       std::cout << "update rppi index" << std::endl;
       int error = update_rppi(cache_dir + "/rppi", mirror, proxy);
       retry++;
-      if (error == GIT_EUNBORNBRANCH) { // get current ref head failed
-        if (file_exist(cache_dir + sep + "rppi")) {
-          delete_directory(cache_dir + sep + "rppi");
-          goto updaterppi;
-        }
-      }
       if (retry > 10)
         return 0;
     } else if (result.count("installed")) {
@@ -855,7 +808,7 @@ int main(int argc, char **argv) {
         std::cout << "[*] " << it.key() << std::endl;
       return 0;
     }
-    std::vector<Recipe> recipes;
+    VRecipe recipes;
     if (file_exist(cache_dir + "/rppi/index.json")) {
       parse_index_rppi(cache_dir + "/rppi", "rppi", recipes);
     } else
@@ -863,7 +816,6 @@ int main(int argc, char **argv) {
     if (!recipes.size()) {
       std::cout << "update rppi index" << std::endl;
       update_rppi(cache_dir + "/rppi", mirror, proxy);
-      std::vector<Recipe>().swap(recipes);
       return 0;
     }
     if (result.count("list")) {
@@ -879,8 +831,7 @@ int main(int argc, char **argv) {
         recipe_file = repo.substr(pos + 1) + ".recipe.yaml";
         repo = repo.substr(0, pos);
       }
-      std::vector<Recipe> res =
-          filter_recipes_with_keyword(recipes, repo, true);
+      VRecipe res = filter_recipes_with_keyword(recipes, repo, true);
       if (res.size()) {
         std::cout << "install recipe by keyword : " << repo;
         if (!recipe_file.empty())
@@ -892,7 +843,6 @@ int main(int argc, char **argv) {
                   << result["install"].as<std::string>() << " failed ||-_-"
                   << std::endl;
       }
-      std::vector<Recipe>().swap(recipes);
       return 0;
     } else if (result.count("git")) {
       std::string repo = result["git"].as<std::string>();
@@ -917,10 +867,8 @@ int main(int argc, char **argv) {
       std::string repo = result["search"].as<std::string>();
       repo = convertToUtf8(repo);
       std::cout << "search recipe with keyword: " << repo << std::endl;
-      std::vector<Recipe> res =
-          filter_recipes_with_keyword(recipes, repo, false);
+      VRecipe res = filter_recipes_with_keyword(recipes, repo, false);
       print_recipes(res);
-      std::vector<Recipe>().swap(recipes);
       return 0;
     } else if (result.count("delete")) {
       std::string repo = result["delete"].as<std::string>();
@@ -933,8 +881,7 @@ int main(int argc, char **argv) {
       }
       pos = repo.find('/');
       std::string local_path = repo.substr(pos + 1);
-      std::vector<Recipe> res =
-          filter_recipes_with_keyword(recipes, repo, true);
+      VRecipe res = filter_recipes_with_keyword(recipes, repo, true);
       if (res.size()) {
         std::cout << "delete recipe by keyword : " << repo;
         if (!recipe_file.empty())
@@ -947,16 +894,14 @@ int main(int argc, char **argv) {
         recipe.local_path = local_path;
         delete_recipe(recipe, recipe_file);
       } else {
-        std::cout << "delete recipe by : " << result["delete"].as<std::string>()
+        std::cout << "delete recipe by : " << repo
                   << " failed ||-_-" << std::endl;
       }
-      std::vector<Recipe>().swap(recipes);
       return 0;
     } else if (result.count("purge")) {
       std::string repo = result["purge"].as<std::string>();
       repo = convertToUtf8(repo);
-      std::vector<Recipe> res =
-          filter_recipes_with_keyword(recipes, repo, true);
+      VRecipe res = filter_recipes_with_keyword(recipes, repo, true);
       size_t pos = repo.find('/');
       std::string local_path = repo.substr(pos + 1);
       if (res.size()) {
@@ -969,10 +914,9 @@ int main(int argc, char **argv) {
         recipe.local_path = local_path;
         delete_recipe(recipe, "", true);
       } else {
-        std::cout << "purge recipe by : " << result["purge"].as<std::string>()
+        std::cout << "purge recipe by : " << repo
                   << " failed ||-_-" << std::endl;
       }
-      std::vector<Recipe>().swap(recipes);
       return 0;
     }
   } catch (const std::exception &e) {
