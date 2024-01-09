@@ -46,7 +46,16 @@ static inline size_t terminal_width() { return terminal_size().second; }
 // for terminal_width() ends
 // ----------------------------------------------------------------------------
 
-struct Recipe {
+class Recipe {
+public:
+  Recipe() {}
+  Recipe(const json &j, const std::string &_category) { fromJson(j, category); }
+  ~Recipe() {
+    VString().swap(labels);
+    VString().swap(schemas);
+    VString().swap(dependencies);
+    VString().swap(reverseDependencies);
+  }
   std::string repo;
   std::string branch;
   std::string name;
@@ -57,6 +66,24 @@ struct Recipe {
   VString reverseDependencies;
   std::string license;
   std::string local_path;
+  void fromJson(const json &j, const std::string &_category) {
+    repo = j["repo"];
+    if (j.contains("branch"))
+      branch = j["branch"];
+    name = j["name"];
+    category = _category;
+    if (j.contains("labels"))
+      labels = j["labels"].get<VString>();
+    schemas = j["schemas"].get<VString>();
+    if (j.contains("dependencies"))
+      dependencies = j["dependencies"].get<VString>();
+    if (j.contains("reverseDependencies"))
+      reverseDependencies = j["reverseDependencies"].get<VString>();
+    if (j.contains("license"))
+      license = j["license"];
+    size_t pos = repo.find("/");
+    local_path = repo.substr(pos + 1);
+  }
 };
 
 // ----------------------------------------------------------------------------
@@ -67,17 +94,15 @@ std::string proxy, mirror, user_dir, cache_dir, installed_recipes_json;
 
 // ----------------------------------------------------------------------------
 // for utf8 output in console esp for win32
+inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
 #ifdef _WIN32
-inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
   unsigned int cp = GetConsoleOutputCP();
   SetConsoleOutputCP(codepage);
   return cp;
-}
 #else
-inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
   return 0;
-}
 #endif /* _WIN32 */
+}
 
 // ----------------------------------------------------------------------------
 // GetApplicationDirectory
@@ -273,9 +298,8 @@ void delete_directory(const std::string &_path) {
 }
 // check if a directory is empty
 bool is_directory_empty(const std::string &path) {
-  for (auto &_ : std::filesystem::directory_iterator(path)) {
+  for (auto &_ : std::filesystem::directory_iterator(path))
     return false;
-  }
   return true;
 }
 
@@ -509,7 +533,8 @@ bool json_array_contain(const json &j, const std::string &str) {
 // ----------------------------------------------------------------------------
 int install_recipe_impl(const VString &recipes, const std::string &prompt,
                         json &installed_recipes,
-                        const std::string &recipe_file = "") {
+                        const std::string &recipe_file = "",
+                        bool install = true) {
   if (recipes.size()) {
     for (const auto &dep : recipes) {
       std::string repo_url = mirror + dep + ".git";
@@ -531,20 +556,34 @@ int install_recipe_impl(const VString &recipes, const std::string &prompt,
           recipe_file_path = "";
         list_files_to_vector(Path(local_path), files, recipe_file_path);
       };
-      if (installed_recipes.contains(dep.substr(pos + 1)))
+      if (install && installed_recipes.contains(dep.substr(pos + 1)))
         installed_recipes.erase(dep.substr(pos + 1));
       for (const auto &file : files) {
         std::string target_path =
             user_dir + sep +
             std::filesystem::relative(file, local_path).string();
-        copy_file(file, target_path);
-        target_path = convertToUtf8(target_path);
-        std::cout << "installed: " << target_path << std::endl;
-        bool exists = json_array_contain(installed_recipes[dep.substr(pos + 1)],
-                                         target_path);
-        if (!exists)
-          installed_recipes[dep.substr(pos + 1)].push_back(target_path);
+        if (install) {
+          copy_file(file, target_path);
+          target_path = convertToUtf8(target_path);
+          std::cout << "installed: " << target_path << std::endl;
+          bool exists = json_array_contain(
+              installed_recipes[dep.substr(pos + 1)], target_path);
+          if (!exists)
+            installed_recipes[dep.substr(pos + 1)].push_back(target_path);
+        } else {
+          if (file_exist(target_path)) {
+            delete_file(target_path);
+            target_path = convertToUtf8(target_path);
+            std::cout << "deleted: " << target_path << std::endl;
+            std::string parent_path = Path(target_path).parent_path().string();
+            delete_empty_dir_to(parent_path, user_dir);
+            delete_str_json(installed_recipes[dep.substr(pos + 1)],
+                            target_path);
+          }
+        }
       }
+      if (!install && installed_recipes.contains(dep.substr(pos + 1)))
+        installed_recipes.erase(dep.substr(pos + 1));
       VString().swap(files);
     }
   }
@@ -571,65 +610,24 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
   write_json(installed_recipes, installed_recipes_json);
   return error;
 }
-// delete recipe repo impl
-void delete_recipe_impl(const VString &recipes, const std::string &prompt,
-                        json &installed_recipes,
-                        const std::string &recipe_file = "") {
-  if (recipes.size()) {
-    for (const auto &dep : recipes) {
-      std::string repo_url = mirror + dep + ".git";
-      size_t pos = dep.find("/");
-      std::string local_path = dep.substr(pos + 1);
-      local_path = (cache_dir + sep + local_path);
-      std::cout << prompt << dep << std::endl;
-      int error = clone_or_update_repository(repo_url.c_str(),
-                                             local_path.c_str(), proxy.c_str());
-      VString files;
-      if (recipe_file.empty())
-        list_files_to_vector(Path(local_path), files);
-      else {
-        std::string recipe_file_path =
-            recipe_file.empty() ? "" : local_path + sep + recipe_file;
-        if (!file_exist(recipe_file_path))
-          recipe_file_path = "";
-        list_files_to_vector(Path(local_path), files, recipe_file_path);
-      };
-      for (const auto &file : files) {
-        std::string target_path =
-            user_dir + sep +
-            std::filesystem::relative(file, local_path).string();
-        if (file_exist(target_path)) {
-          delete_file(target_path);
-          target_path = convertToUtf8(target_path);
-          std::cout << "deleted: " << target_path << std::endl;
-          std::string parent_path = Path(target_path).parent_path().string();
-          delete_empty_dir_to(parent_path, user_dir);
-        }
-        delete_str_json(installed_recipes[dep.substr(pos + 1)], target_path);
-      }
-      if (installed_recipes.contains(dep.substr(pos + 1)))
-        installed_recipes.erase(dep.substr(pos + 1));
-      VString().swap(files);
-    }
-  }
-}
 // delete recipe repo
 int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
                   bool purge = false) {
   // load cache_dir/.installed_recipes.json
   json installed_recipes = load_json(installed_recipes_json);
   VString recipes(1, recipe.repo);
-  delete_recipe_impl(recipes, "update recipe: ", installed_recipes,
-                     purge ? "" : recipe_file);
+  install_recipe_impl(recipes, "update recipe: ", installed_recipes,
+                      purge ? "" : recipe_file, false);
   VString().swap(recipes);
   if (!purge) {
     write_json(installed_recipes, installed_recipes_json);
     return 0;
   }
-  delete_recipe_impl(recipe.dependencies,
-                     "update dependency: ", installed_recipes);
-  delete_recipe_impl(recipe.reverseDependencies,
-                     "update reverse dependency: ", installed_recipes);
+  install_recipe_impl(recipe.dependencies,
+                      "update dependency: ", installed_recipes, "", false);
+  install_recipe_impl(recipe.reverseDependencies,
+                      "update reverse dependency: ", installed_recipes, "",
+                      false);
   write_json(installed_recipes, installed_recipes_json);
   return 0;
 }
@@ -644,33 +642,12 @@ void parse_index_rppi(const std::string &file_dir, const std::string &category,
                       std::vector<Recipe> &recipes) {
   json j = load_json(file_dir + "/index.json");
   if (j.contains("recipes")) {
-    for (const auto &recipe : j["recipes"]) {
-      Recipe _recipe;
-      _recipe.repo = recipe["repo"];
-      size_t pos = _recipe.repo.find("/");
-      _recipe.local_path = _recipe.repo.substr(pos + 1);
-      _recipe.name = recipe["name"];
-      if (recipe.contains("labels"))
-        for (const auto &l : recipe["labels"])
-          _recipe.labels.push_back(l);
-      if (recipe.contains("schemas"))
-        for (const auto &s : recipe["schemas"])
-          _recipe.schemas.push_back(s);
-      if (recipe.contains("dependencies"))
-        for (const auto &d : recipe["dependencies"])
-          _recipe.dependencies.push_back(d);
-      if (recipe.contains("reverseDependencies"))
-        for (const auto &d : recipe["reverseDependencies"])
-          _recipe.reverseDependencies.push_back(d);
-      if (recipe.contains("license"))
-        _recipe.license = recipe["license"];
-      _recipe.category = category;
-      recipes.push_back(_recipe);
-    }
+    for (const auto &recipe : j["recipes"])
+      recipes.push_back(Recipe(recipe, category));
   } else if (j.contains("categories")) {
     for (const auto &cat : j["categories"]) {
       parse_index_rppi(file_dir + sep + std::string(cat["key"]),
-                       category + sep + std::string(cat["key"]), recipes);
+                       category + "/" + std::string(cat["key"]), recipes);
     }
   }
 }
