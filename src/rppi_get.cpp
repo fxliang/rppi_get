@@ -91,8 +91,6 @@ using VRecipe = std::vector<Recipe>;
 static int bar_width = 0;
 std::string proxy, mirror, user_dir, cache_dir, installed_recipes_json;
 // ----------------------------------------------------------------------------
-
-// ----------------------------------------------------------------------------
 // for utf8 output in console esp for win32
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
 #ifdef _WIN32
@@ -103,7 +101,6 @@ inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
   return 0;
 #endif /* _WIN32 */
 }
-
 // ----------------------------------------------------------------------------
 // GetApplicationDirectory
 #ifdef _WIN32
@@ -132,47 +129,27 @@ std::string GetApplicationDirectory() {
 #endif
   return appPath;
 }
-// GetApplicationDirectory end
 // ----------------------------------------------------------------------------
 // encoding stuff
 // ----------------------------------------------------------------------------
 #ifdef _WIN32
-std::wstring _to_wstring(const std::string &str, int code_page = CP_ACP) {
-  // support CP_ACP and CP_UTF8 only
-  if (code_page != 0 && code_page != CP_UTF8)
-    return L"";
-  // calc len
-  int len =
-      MultiByteToWideChar(code_page, 0, str.c_str(), (int)str.size(), NULL, 0);
-  if (len <= 0)
-    return L"";
-  std::wstring res;
-  wchar_t *buffer = new wchar_t[len + 1];
-  MultiByteToWideChar(code_page, 0, str.c_str(), (int)str.size(), buffer, len);
-  buffer[len] = '\0';
-  res.append(buffer);
-  delete[] buffer;
-  return res;
-}
-std::string _to_string(const std::wstring &wstr, int code_page = CP_ACP) {
-  // support CP_ACP and CP_UTF8 only
-  if (code_page != 0 && code_page != CP_UTF8)
+inline std::string convertToUtf8(const std::string &str) {
+  int wCharLen = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, 0, 0);
+  if (wCharLen == 0)
     return "";
-  int len = WideCharToMultiByte(code_page, 0, wstr.c_str(), (int)wstr.size(),
-                                NULL, 0, NULL, NULL);
-  if (len <= 0)
+  wchar_t *wStr = new wchar_t[wCharLen];
+  MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, wStr, wCharLen);
+  int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wStr, -1, 0, 0, 0, 0);
+  if (utf8Len == 0) {
+    delete[] wStr;
     return "";
-  std::string res;
-  char *buffer = new char[len + 1];
-  WideCharToMultiByte(code_page, 0, wstr.c_str(), (int)wstr.size(), buffer, len,
-                      NULL, NULL);
-  buffer[len] = '\0';
-  res.append(buffer);
-  delete[] buffer;
-  return res;
-}
-inline std::string convertToUtf8(std::string &str) {
-  return _to_string(_to_wstring(str), CP_UTF8);
+  }
+  char *utf8Str = new char[utf8Len];
+  WideCharToMultiByte(CP_UTF8, 0, wStr, -1, utf8Str, utf8Len, 0, 0);
+  std::string result(utf8Str);
+  delete[] wStr;
+  delete[] utf8Str;
+  return result;
 }
 #else
 inline std::string convertToUtf8(std::string &str) { return str; }
@@ -184,9 +161,6 @@ void SetConsoleColor(int color) {
   HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
   SetConsoleTextAttribute(hConsole, color);
 }
-#endif // for console text color in win32 end
-
-#ifdef _WIN32
 #define COLOR_GREEN FOREGROUND_GREEN
 #define MSG_WITH_COLOR(msg, color)                                             \
   {                                                                            \
@@ -528,6 +502,7 @@ bool json_array_contain(const json &j, const std::string &str) {
 // ----------------------------------------------------------------------------
 // recipes processes
 // ----------------------------------------------------------------------------
+#define RETURN_IF_ERROR(error) {if(error) return error;}
 int install_recipe_impl(const VString &recipes, const std::string &prompt,
                         json &installed_recipes,
                         const std::string &recipe_file = "",
@@ -541,8 +516,7 @@ int install_recipe_impl(const VString &recipes, const std::string &prompt,
       std::cout << prompt << dep << std::endl;
       int error = clone_or_update_repository(repo_url.c_str(),
                                              local_path.c_str(), proxy.c_str());
-      if (error)
-        return error;
+      RETURN_IF_ERROR(error);
       VString files;
       if (recipe_file.empty())
         list_files_to_vector(Path(local_path), files);
@@ -594,16 +568,13 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
   int error = install_recipe_impl(recipes, "update recipe: ", installed_recipes,
                                   recipe_file);
   VString().swap(recipes);
-  if (error)
-    return error;
+  RETURN_IF_ERROR(error);
   error = install_recipe_impl(recipe.dependencies,
                               "update dependency: ", installed_recipes);
-  if (error)
-    return error;
+  RETURN_IF_ERROR(error);
   error = install_recipe_impl(recipe.reverseDependencies,
                               "update reverse dependency: ", installed_recipes);
-  if (error)
-    return error;
+  RETURN_IF_ERROR(error);
   write_json(installed_recipes, installed_recipes_json);
   return error;
 }
@@ -613,18 +584,20 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
   // load cache_dir/.installed_recipes.json
   json installed_recipes = load_json(installed_recipes_json);
   VString recipes(1, recipe.repo);
-  install_recipe_impl(recipes, "update recipe: ", installed_recipes,
+  int error = install_recipe_impl(recipes, "update recipe: ", installed_recipes,
                       purge ? "" : recipe_file, false);
   VString().swap(recipes);
   if (!purge) {
     write_json(installed_recipes, installed_recipes_json);
     return 0;
   }
-  install_recipe_impl(recipe.dependencies,
+  error = install_recipe_impl(recipe.dependencies,
                       "update dependency: ", installed_recipes, "", false);
-  install_recipe_impl(recipe.reverseDependencies,
+  RETURN_IF_ERROR(error);
+  error = install_recipe_impl(recipe.reverseDependencies,
                       "update reverse dependency: ", installed_recipes, "",
                       false);
+  RETURN_IF_ERROR(error);
   write_json(installed_recipes, installed_recipes_json);
   return 0;
 }
@@ -745,19 +718,20 @@ int main(int argc, char **argv) {
     return 0;
   try {
     cxxopts::Options options("rppi_get", " - A toy to play with rppi");
-    options.add_options()("h,help", "print help")(
-        "I,installed", "list recipes installed")("u,update", "update rppi")(
-        "i,install", "install or update a recipe",
-        cxxopts::value<std::string>())("d,delete", "delete a recipe",
-                                       cxxopts::value<std::string>())(
-        "P,purge", "purge a recipe (with dependencies and reverseDependencies)",
-        cxxopts::value<std::string>())("g,git", "install recipe by git repo",
-                                       cxxopts::value<std::string>())(
-        "s,search", "search recipe with keyword",
-        cxxopts::value<std::string>())("c,clean", "clean caches")(
-        "v,verbose", "verbose settings")("l,list", "list recipes in rppi")(
-        "m,mirror", "configure github mirror", cxxopts::value<std::string>())(
-        "p,proxy", "configure git proxy", cxxopts::value<std::string>());
+    options .add_options()
+      ("h,help", "print help")
+      ("I,installed", "list recipes installed")
+      ("u,update", "update rppi")
+      ("i,install", "install or update a recipe", cxxopts:: value<std::string>())
+      ("d,delete", "delete a recipe", cxxopts::value<std::string>())
+      ("P,purge", "purge a recipe (with dependencies and reverseDependencies)", cxxopts::value<std::string>())
+      ("g,git", "install recipe by git repo", cxxopts::value<std::string>())
+      ("s,search", "search recipe with keyword", cxxopts:: value< std:: string>())
+      ("c,clean", "clean caches")
+      ("v,verbose", "verbose settings")
+      ("l,list", "list recipes in rppi")
+      ("m,mirror", "configure github mirror", cxxopts:: value<std::string>())
+      ("p,proxy", "configure git proxy", cxxopts::value<std::string>());
     auto result = options.parse(argc, argv);
     int retry = 0;
     if (result.count("mirror")) {
@@ -839,8 +813,7 @@ int main(int argc, char **argv) {
         std::cout << std::endl;
         install_recipe(res.at(0), recipe_file);
       } else {
-        std::cout << "install recipe by : "
-                  << result["install"].as<std::string>() << " failed ||-_-"
+        std::cout << "install recipe by : " << repo << " failed ||-_-"
                   << std::endl;
       }
       return 0;
