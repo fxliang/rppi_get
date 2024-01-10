@@ -549,8 +549,7 @@ int install_recipe_impl(const VString &recipes, const std::string &prompt,
         } else {
           if (file_exist(target_path)) {
             delete_file(target_path);
-            target_path = convertToUtf8(target_path);
-            std::cout << "deleted: " << target_path << std::endl;
+            std::cout << "deleted: " << convertToUtf8(target_path) << std::endl;
             std::string parent_path = Path(target_path).parent_path().string();
             delete_empty_dir_to(parent_path, user_dir);
             delete_str_json(installed_recipes[dep.substr(pos + 1)],
