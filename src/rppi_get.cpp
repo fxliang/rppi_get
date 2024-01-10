@@ -20,6 +20,8 @@
 using json = nlohmann::json;
 using VString = std::vector<std::string>;
 using Path = std::filesystem::path;
+auto valuestring()
+{ return std::make_shared<cxxopts::values::standard_value<std::string>>(); }
 
 // ----------------------------------------------------------------------------
 // for terminal_width()
@@ -444,6 +446,9 @@ int clone_or_update_repository(const char *repo_url, const char *local_path,
                 << std::endl;
       delete_directory(local_path);
       error = clone_repository(repo_url, local_path, proxy_opts);
+    } else if (error == GIT_EUNBORNBRANCH) { // get current ref head failed
+      delete_directory(local_path);
+      error = clone_repository(repo_url, local_path, proxy_opts);
     }
   } else {
     error = clone_repository(repo_url, local_path, proxy_opts);
@@ -722,16 +727,17 @@ int main(int argc, char **argv) {
       ("h,help", "print help")
       ("I,installed", "list recipes installed")
       ("u,update", "update rppi")
-      ("i,install", "install or update a recipe", cxxopts:: value<std::string>())
-      ("d,delete", "delete a recipe", cxxopts::value<std::string>())
-      ("P,purge", "purge a recipe (with dependencies and reverseDependencies)", cxxopts::value<std::string>())
-      ("g,git", "install recipe by git repo", cxxopts::value<std::string>())
-      ("s,search", "search recipe with keyword", cxxopts:: value< std:: string>())
+      ("i,install", "install or update a recipe", valuestring())
+      ("d,delete", "delete a recipe", valuestring())
+			("P,purge", "purge a recipe "
+			 "(with dependencies and reverseDependencies)", valuestring())
+      ("g,git", "install recipe by git repo", valuestring())
+      ("s,search", "search recipe with keyword", valuestring())
       ("c,clean", "clean caches")
       ("v,verbose", "verbose settings")
       ("l,list", "list recipes in rppi")
-      ("m,mirror", "configure github mirror", cxxopts:: value<std::string>())
-      ("p,proxy", "configure git proxy", cxxopts::value<std::string>());
+      ("m,mirror", "configure github mirror", valuestring())
+      ("p,proxy", "configure git proxy", valuestring());
     auto result = options.parse(argc, argv);
     int retry = 0;
     if (result.count("mirror")) {
