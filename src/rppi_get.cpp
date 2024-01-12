@@ -210,15 +210,6 @@ std::string parse_path(const std::string &path) {
 // ----------------------------------------------------------------------------
 // check if a file exist
 #define file_exist(file_path) std::filesystem::exists(Path(file_path))
-// list files in a directory
-void list_files(const Path &directory) {
-  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
-    if (entry.is_directory() && entry.path().filename().string().at(0) != '.')
-      list_files(entry.path());
-    else if (entry.is_regular_file())
-      std::cout << entry.path().string() << std::endl;
-  }
-}
 // list files in a directory to a vector for recipe
 void list_files_to_vector(const Path &directory, VString &files,
                           const Path &recipe_file = "") {
@@ -296,7 +287,7 @@ bool is_directory_empty(const std::string &path) {
     return false;
   return true;
 }
-
+// if not file but only empty directory to the base, delete directories
 void delete_empty_dir_to(const std::string &dir, std::string &base) {
   if (dir != base) {
     if (is_directory_empty(dir)) {
@@ -332,10 +323,8 @@ int transfer_progress(const git_transfer_progress *stats, void *payload) {
     for (int i = 0; i < barWidth; ++i) {
       if (i < pos) {
         MSG_WITH_COLOR("\xe2\x96\x88", COLOR_GREEN);
-      } else if (i == pos)
-        std::cout << ">";
-      else
-        std::cout << " ";
+      } else
+        std::cout << ((i == pos) ? ">" : " ");
     }
     std::cout << "] " << stats->received_objects << "/" << stats->total_objects
               << " objs " << int(percentage) << " %\r";
@@ -441,12 +430,8 @@ int clone_or_update_repository(const char *repo_url, const char *local_path,
   if (file_exist(local_path)) {
     error = update_repository(local_path, proxy_opts);
     // not a git directory
-    if (error == GIT_ENOTFOUND) {
-      std::cout << local_path << "not a git repo, delete it and clone "
-                << std::endl;
-      delete_directory(local_path);
-      error = clone_repository(repo_url, local_path, proxy_opts);
-    } else if (error == GIT_EUNBORNBRANCH) { // get current ref head failed
+    if (error == GIT_ENOTFOUND || error == GIT_EUNBORNBRANCH) {
+      std::cout << local_path << "repo error, delete it and clone" << std::endl;
       delete_directory(local_path);
       error = clone_repository(repo_url, local_path, proxy_opts);
     }
@@ -471,13 +456,13 @@ int write_json(const json &j, const std::string &file) {
 }
 // load a json file
 json load_json(const std::string &file_path, bool create = false) {
+  json j;
   if (!file_exist(file_path)) {
     if (create)
-      write_json(json(), file_path);
-    return json();
+      write_json(j, file_path);
+    return j;
   }
   std::ifstream file(file_path);
-  json j;
   if (file.peek() != std::ifstream::traits_type::eof())
     file >> j;
   else {
@@ -523,15 +508,13 @@ int install_recipe_impl(const VString &recipes, const std::string &prompt,
                                              local_path.c_str(), proxy.c_str());
       RETURN_IF_ERROR(error);
       VString files;
-      if (recipe_file.empty())
-        list_files_to_vector(Path(local_path), files);
-      else {
-        std::string recipe_file_path =
-            recipe_file.empty() ? "" : local_path + sep + recipe_file;
+      std::string recipe_file_path = "";
+      if (!recipe_file.empty()) {
+        recipe_file_path = local_path + sep + recipe_file;
         if (!file_exist(recipe_file_path))
           recipe_file_path = "";
-        list_files_to_vector(Path(local_path), files, recipe_file_path);
       };
+      list_files_to_vector(Path(local_path), files, recipe_file_path);
       if (install && installed_recipes.contains(dep.substr(pos + 1)))
         installed_recipes.erase(dep.substr(pos + 1));
       for (const auto &file : files) {
@@ -719,7 +702,7 @@ int main(int argc, char **argv) {
   int codepage = SetConsoleOutputCodePage();
   bar_width = (int)(terminal_width() * 0.6); // setup processbar width
   if (!load_config())
-    return 0;
+    goto normal_exit;
   try {
     cxxopts::Options options("rppi_get", " - A toy to play with rppi");
     options .add_options()
@@ -728,8 +711,8 @@ int main(int argc, char **argv) {
       ("u,update", "update rppi")
       ("i,install", "install or update a recipe", valuestring())
       ("d,delete", "delete a recipe", valuestring())
-			("P,purge", "purge a recipe "
-			 "(with dependencies and reverseDependencies)", valuestring())
+      ("P,purge", "purge a recipe "
+       "(with dependencies and reverseDependencies)", valuestring())
       ("g,git", "install recipe by git repo", valuestring())
       ("s,search", "search recipe with keyword", valuestring())
       ("c,clean", "clean caches")
@@ -760,7 +743,7 @@ int main(int argc, char **argv) {
     }
     if (argc == 1 || result.count("help")) {
       std::cout << options.help() << std::endl;
-      return 0;
+      goto normal_exit;
     } else if (result.count("clean")) {
       Path directory = cache_dir;
       if (file_exist(cache_dir))
@@ -772,20 +755,20 @@ int main(int argc, char **argv) {
             delete_directory(entry.path().string());
           }
         }
-      return 0;
+      goto normal_exit;
     } else if (result.count("update")) {
     updaterppi:
       std::cout << "update rppi index" << std::endl;
       int error = update_rppi(cache_dir + "/rppi", mirror, proxy);
       retry++;
       if (retry > 10)
-        return 0;
+        goto normal_exit;
     } else if (result.count("installed")) {
       std::cout << "recipes installed:" << std::endl;
       json j = load_json(installed_recipes_json);
       for (auto it = j.begin(); it != j.end(); ++it)
         std::cout << "[*] " << it.key() << std::endl;
-      return 0;
+      goto normal_exit;
     }
     VRecipe recipes;
     if (file_exist(cache_dir + "/rppi/index.json")) {
@@ -795,11 +778,11 @@ int main(int argc, char **argv) {
     if (!recipes.size()) {
       std::cout << "update rppi index" << std::endl;
       update_rppi(cache_dir + "/rppi", mirror, proxy);
-      return 0;
+      goto normal_exit;
     }
     if (result.count("list")) {
       print_recipes(recipes);
-      return 0;
+      goto normal_exit;
     }
     if (result.count("install")) {
       std::string repo = result["install"].as<std::string>();
@@ -821,7 +804,7 @@ int main(int argc, char **argv) {
         std::cout << "install recipe by : " << repo << " failed ||-_-"
                   << std::endl;
       }
-      return 0;
+      goto normal_exit;
     } else if (result.count("git")) {
       std::string repo = result["git"].as<std::string>();
       repo = convertToUtf8(repo);
@@ -840,14 +823,14 @@ int main(int argc, char **argv) {
         std::cout << ", with recipe file: " << recipe_file;
       std::cout << std::endl;
       install_recipe(recipe, recipe_file);
-      return 0;
+      goto normal_exit;
     } else if (result.count("search")) {
       std::string repo = result["search"].as<std::string>();
       repo = convertToUtf8(repo);
       std::cout << "search recipe with keyword: " << repo << std::endl;
       VRecipe res = filter_recipes_with_keyword(recipes, repo, false);
       print_recipes(res);
-      return 0;
+      goto normal_exit;
     } else if (result.count("delete")) {
       std::string repo = result["delete"].as<std::string>();
       repo = convertToUtf8(repo);
@@ -875,7 +858,7 @@ int main(int argc, char **argv) {
         std::cout << "delete recipe by : " << repo
                   << " failed ||-_-" << std::endl;
       }
-      return 0;
+      goto normal_exit;
     } else if (result.count("purge")) {
       std::string repo = result["purge"].as<std::string>();
       repo = convertToUtf8(repo);
@@ -895,12 +878,14 @@ int main(int argc, char **argv) {
         std::cout << "purge recipe by : " << repo
                   << " failed ||-_-" << std::endl;
       }
-      return 0;
+      goto normal_exit;
     }
   } catch (const std::exception &e) {
     std::cerr << "Error parsing options: " << e.what() << std::endl;
+    SetConsoleOutputCodePage(codepage);
     return 1;
   }
+normal_exit:
   SetConsoleOutputCodePage(codepage);
   return 0;
 }
