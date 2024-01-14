@@ -1,5 +1,6 @@
 #include "git.hpp"
 #include "json.hpp"
+#include "spec.hpp"
 #include <cxxopts.hpp>
 #include <filesystem>
 #include <fstream>
@@ -48,46 +49,6 @@ static inline size_t terminal_width() { return terminal_size().second; }
 // for terminal_width() ends
 // ----------------------------------------------------------------------------
 
-class Recipe {
-public:
-  Recipe() {}
-  Recipe(const json &j, const std::string &_category) { fromJson(j, category); }
-  ~Recipe() {
-    VString().swap(labels);
-    VString().swap(schemas);
-    VString().swap(dependencies);
-    VString().swap(reverseDependencies);
-  }
-  std::string repo;
-  std::string branch;
-  std::string name;
-  std::string category;
-  VString labels;
-  VString schemas;
-  VString dependencies;
-  VString reverseDependencies;
-  std::string license;
-  std::string local_path;
-  void fromJson(const json &j, const std::string &_category) {
-    repo = j["repo"];
-    if (j.contains("branch"))
-      branch = j["branch"];
-    name = j["name"];
-    category = _category;
-    if (j.contains("labels"))
-      labels = j["labels"].get<VString>();
-    schemas = j["schemas"].get<VString>();
-    if (j.contains("dependencies"))
-      dependencies = j["dependencies"].get<VString>();
-    if (j.contains("reverseDependencies"))
-      reverseDependencies = j["reverseDependencies"].get<VString>();
-    if (j.contains("license"))
-      license = j["license"];
-    size_t pos = repo.find("/");
-    local_path = repo.substr(pos + 1);
-  }
-};
-using VRecipe = std::vector<Recipe>;
 // ----------------------------------------------------------------------------
 // global vars
 static int bar_width = 0;
@@ -467,12 +428,12 @@ int clone_or_update_repository(const char *repo_url, const char *local_path,
     if (error)                                                                 \
       return error;                                                            \
   }
-int install_recipe_impl(const VString &recipes, const std::string &prompt,
+int install_recipe_impl(const std::optional<StrVec> &recipes, const std::string &prompt,
                         json &installed_recipes,
                         const std::string &recipe_file = "",
                         bool install = true) {
-  if (recipes.size()) {
-    for (const auto &dep : recipes) {
+  if (recipes.has_value() && !recipes.value().empty()) {
+    for (const auto &dep : recipes.value()) {
       std::string repo_url = mirror + dep + ".git";
       size_t pos = dep.find("/");
       std::string local_path = dep.substr(pos + 1);
@@ -523,7 +484,7 @@ int install_recipe_impl(const VString &recipes, const std::string &prompt,
   return 0;
 }
 // install recipe repo
-int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
+int install_recipe(const spec::Recipe &recipe, const std::string &recipe_file = "") {
   // load cache_dir/.installed_recipes.json, create one if not exists
   json installed_recipes = jsonutils::load_from_file(installed_recipes_json);
   VString recipes(1, recipe.repo);
@@ -534,14 +495,14 @@ int install_recipe(const Recipe &recipe, const std::string &recipe_file = "") {
   error = install_recipe_impl(recipe.dependencies,
                               "update dependency: ", installed_recipes);
   RETURN_IF_ERROR(error);
-  error = install_recipe_impl(recipe.reverseDependencies,
+  error = install_recipe_impl(recipe.reverse_dependencies,
                               "update reverse dependency: ", installed_recipes);
   RETURN_IF_ERROR(error);
   jsonutils::save_to_file(installed_recipes, installed_recipes_json);
   return error;
 }
 // delete recipe repo
-int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
+int delete_recipe(const spec::Recipe &recipe, const std::string &recipe_file = "",
                   bool purge = false) {
   // load cache_dir/.installed_recipes.json
   json installed_recipes = jsonutils::load_from_file(installed_recipes_json);
@@ -556,7 +517,7 @@ int delete_recipe(const Recipe &recipe, const std::string &recipe_file = "",
   error = install_recipe_impl(
       recipe.dependencies, "update dependency: ", installed_recipes, "", false);
   RETURN_IF_ERROR(error);
-  error = install_recipe_impl(recipe.reverseDependencies,
+  error = install_recipe_impl(recipe.reverse_dependencies,
                               "update reverse dependency: ", installed_recipes,
                               "", false);
   RETURN_IF_ERROR(error);
@@ -569,20 +530,7 @@ int update_rppi(std::string local_path, std::string mirror, std::string proxy) {
   return clone_or_update_repository(repo_url.c_str(), local_path.c_str(),
                                     proxy.empty() ? nullptr : proxy.c_str());
 }
-// parse rppi index.json to get Recipe vector
-void parse_index_rppi(const std::string &file_dir, const std::string &category,
-                      VRecipe &recipes) {
-  json j = jsonutils::load_from_file(file_dir + "/index.json");
-  if (j.contains("recipes")) {
-    for (const auto &recipe : j["recipes"])
-      recipes.push_back(Recipe(recipe, category));
-  } else if (j.contains("categories")) {
-    for (const auto &cat : j["categories"]) {
-      parse_index_rppi(file_dir + sep + std::string(cat["key"]),
-                       category + "/" + std::string(cat["key"]), recipes);
-    }
-  }
-}
+
 // join sring vector to strings seperated with space and quote with []
 std::string join_string_vector(const VString &string_vector,
                                const std::string &_sep = " ",
@@ -596,35 +544,7 @@ std::string join_string_vector(const VString &string_vector,
   res += _sep + _end;
   return res;
 }
-// print recipes info
-void print_recipes(const VRecipe &recipes) {
-  for (const auto &r : recipes)
-    std::cout << "name: " << r.name << ", repo: "
-              << r.repo
-              //<< ", category: " << r.category
-              //<< ", schemas: " << join_string_vector(r.schemas)
-              //<< ", dependencies: " << join_string_vector(r.dependencies)
-              //<< ", reverseDependencies: " <<
-              // join_string_vector(r.reverseDependencies)
-              << std::endl;
-}
-// filter recipes with keyword, for recipe searching
-VRecipe filter_recipes_with_keyword(const VRecipe &recipes,
-                                    const std::string &keyword,
-                                    bool strict = false) {
-  VRecipe res;
-  const std::regex regex =
-      std::regex(".*" + keyword + ".*", std::regex_constants::icase);
-  for (const auto &r : recipes) {
-    if ((!strict &&
-         (std::regex_match(r.name, regex) || std::regex_match(r.repo, regex) ||
-          std::regex_match(r.category, regex))) ||
-        (strict &&
-         (r.repo == keyword || r.name == keyword || r.category == keyword)))
-      res.push_back(r);
-  }
-  return res;
-}
+
 // load rppi config
 bool load_config() {
   std::string app_path = GetApplicationDirectory();
@@ -745,9 +665,9 @@ int main(int argc, char **argv) {
         std::cout << "[*] " << it.key() << std::endl;
       return 0;
     }
-    VRecipe recipes;
+    spec::RecipeVec recipes;
     if (file_exist(cache_dir + "/rppi/index.json")) {
-      parse_index_rppi(cache_dir + "/rppi", "rppi", recipes);
+      spec::extract_recipes_from_rppi(cache_dir + "/rppi", recipes);
     } else
       goto updaterppi;
     if (!recipes.size()) {
@@ -756,7 +676,7 @@ int main(int argc, char **argv) {
       return 0;
     }
     if (result.count("list")) {
-      print_recipes(recipes);
+      spec::print_recipes(recipes);
       return 0;
     }
     if (result.count("install")) {
@@ -768,7 +688,7 @@ int main(int argc, char **argv) {
         recipe_file = repo.substr(pos + 1) + ".recipe.yaml";
         repo = repo.substr(0, pos);
       }
-      VRecipe res = filter_recipes_with_keyword(recipes, repo, true);
+      spec::RecipeVec res = spec::filter_recipes(recipes, repo, true);
       if (res.size()) {
         std::cout << "install recipe by keyword : " << repo;
         if (!recipe_file.empty())
@@ -789,7 +709,7 @@ int main(int argc, char **argv) {
         recipe_file = repo.substr(pos + 1) + ".recipe.yaml";
         repo = repo.substr(0, pos);
       }
-      Recipe recipe;
+      spec::Recipe recipe;
       recipe.repo = repo;
       pos = repo.find('/');
       recipe.local_path = repo.substr(pos + 1);
@@ -803,8 +723,8 @@ int main(int argc, char **argv) {
       std::string repo = result["search"].as<std::string>();
       repo = convertToUtf8(repo);
       std::cout << "search recipe with keyword: " << repo << std::endl;
-      VRecipe res = filter_recipes_with_keyword(recipes, repo, false);
-      print_recipes(res);
+      spec::RecipeVec res = filter_recipes(recipes, repo, false);
+      spec::print_recipes(res);
       return 0;
     } else if (result.count("delete")) {
       std::string repo = result["delete"].as<std::string>();
@@ -817,7 +737,7 @@ int main(int argc, char **argv) {
       }
       pos = repo.find('/');
       std::string local_path = repo.substr(pos + 1);
-      VRecipe res = filter_recipes_with_keyword(recipes, repo, true);
+      spec::RecipeVec res = spec::filter_recipes(recipes, repo, true);
       if (res.size()) {
         std::cout << "delete recipe by keyword : " << repo;
         if (!recipe_file.empty())
@@ -826,7 +746,7 @@ int main(int argc, char **argv) {
         delete_recipe(res.at(0), recipe_file);
       } else if (jsonutils::load_from_file(installed_recipes_json)
                      .contains(local_path)) {
-        Recipe recipe;
+        spec::Recipe recipe;
         recipe.repo = repo;
         recipe.local_path = local_path;
         delete_recipe(recipe, recipe_file);
@@ -838,7 +758,7 @@ int main(int argc, char **argv) {
     } else if (result.count("purge")) {
       std::string repo = result["purge"].as<std::string>();
       repo = convertToUtf8(repo);
-      VRecipe res = filter_recipes_with_keyword(recipes, repo, true);
+      spec::RecipeVec res = spec::filter_recipes(recipes, repo, true);
       size_t pos = repo.find('/');
       std::string local_path = repo.substr(pos + 1);
       if (res.size()) {
@@ -847,7 +767,7 @@ int main(int argc, char **argv) {
         delete_recipe(res.at(0), "", true);
       } else if (jsonutils::load_from_file(installed_recipes_json)
                      .contains(local_path)) {
-        Recipe recipe;
+        spec::Recipe recipe;
         recipe.repo = repo;
         recipe.local_path = local_path;
         delete_recipe(recipe, "", true);
