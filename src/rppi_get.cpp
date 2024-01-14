@@ -1,3 +1,4 @@
+#include "encoding.hpp"
 #include "git.hpp"
 #include "json.hpp"
 #include "spec.hpp"
@@ -92,31 +93,7 @@ std::string GetApplicationDirectory() {
 #endif
   return appPath;
 }
-// ----------------------------------------------------------------------------
-// encoding stuff
-// ----------------------------------------------------------------------------
-#ifdef _WIN32
-inline std::string convertToUtf8(const std::string &str) {
-  int wCharLen = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, 0, 0);
-  if (wCharLen == 0)
-    return "";
-  wchar_t *wStr = new wchar_t[wCharLen];
-  MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, wStr, wCharLen);
-  int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wStr, -1, 0, 0, 0, 0);
-  if (utf8Len == 0) {
-    delete[] wStr;
-    return "";
-  }
-  char *utf8Str = new char[utf8Len];
-  WideCharToMultiByte(CP_UTF8, 0, wStr, -1, utf8Str, utf8Len, 0, 0);
-  std::string result(utf8Str);
-  delete[] wStr;
-  delete[] utf8Str;
-  return result;
-}
-#else
-inline std::string convertToUtf8(std::string &str) { return str; }
-#endif
+
 // ----------------------------------------------------------------------------
 // for console text color in win32
 #ifdef _WIN32
@@ -460,7 +437,7 @@ int install_recipe_impl(const std::optional<StrVec> &recipes, const std::string 
             std::filesystem::relative(file, local_path).string();
         if (install) {
           copy_file(file, target_path);
-          target_path = convertToUtf8(target_path);
+          target_path = encoding::platform_str(target_path);
           std::cout << "installed: " << target_path << std::endl;
           bool exists =
               installed_recipes[dep.substr(pos + 1)].contains(target_path);
@@ -469,7 +446,7 @@ int install_recipe_impl(const std::optional<StrVec> &recipes, const std::string 
         } else {
           if (file_exist(target_path)) {
             delete_file(target_path);
-            std::cout << "deleted: " << convertToUtf8(target_path) << std::endl;
+            std::cout << "deleted: " << encoding::platform_str(target_path) << std::endl;
             std::string parent_path = Path(target_path).parent_path().string();
             delete_empty_dir_to(parent_path, user_dir);
             installed_recipes[dep.substr(pos + 1)].erase(target_path);
@@ -681,7 +658,7 @@ int main(int argc, char **argv) {
     }
     if (result.count("install")) {
       std::string repo = result["install"].as<std::string>();
-      repo = convertToUtf8(repo);
+      repo = encoding::platform_str(repo);
       size_t pos = repo.find(':');
       std::string recipe_file = "";
       if (pos < repo.length()) {
@@ -702,7 +679,7 @@ int main(int argc, char **argv) {
       return 0;
     } else if (result.count("git")) {
       std::string repo = result["git"].as<std::string>();
-      repo = convertToUtf8(repo);
+      repo = encoding::platform_str(repo);
       size_t pos = repo.find(':');
       std::string recipe_file = "";
       if (pos < repo.length()) {
@@ -721,14 +698,14 @@ int main(int argc, char **argv) {
       return 0;
     } else if (result.count("search")) {
       std::string repo = result["search"].as<std::string>();
-      repo = convertToUtf8(repo);
+      repo = encoding::platform_str(repo);
       std::cout << "search recipe with keyword: " << repo << std::endl;
       spec::RecipeVec res = filter_recipes(recipes, repo, false);
       spec::print_recipes(res);
       return 0;
     } else if (result.count("delete")) {
       std::string repo = result["delete"].as<std::string>();
-      repo = convertToUtf8(repo);
+      repo = encoding::platform_str(repo);
       size_t pos = repo.find(':');
       std::string recipe_file = "";
       if (pos < repo.length()) {
@@ -757,7 +734,7 @@ int main(int argc, char **argv) {
       return 0;
     } else if (result.count("purge")) {
       std::string repo = result["purge"].as<std::string>();
-      repo = convertToUtf8(repo);
+      repo = encoding::platform_str(repo);
       spec::RecipeVec res = spec::filter_recipes(recipes, repo, true);
       size_t pos = repo.find('/');
       std::string local_path = repo.substr(pos + 1);
