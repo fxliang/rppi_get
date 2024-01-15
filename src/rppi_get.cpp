@@ -51,7 +51,7 @@ static inline size_t terminal_width() { return terminal_size().second; }
 class Recipe {
 public:
   Recipe() {}
-  Recipe(const json &j, const std::string &_category) { fromJson(j, category); }
+  Recipe(const json &j, const std::string &_category) { fromJson(j, _category); }
   ~Recipe() {
     VString().swap(labels);
     VString().swap(schemas);
