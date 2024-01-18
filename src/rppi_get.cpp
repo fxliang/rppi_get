@@ -773,16 +773,14 @@ int main(int argc, char **argv) {
     VRecipe recipes;
     if (file_exist(cache_dir + "/rppi/index.json")) {
       parse_index_rppi(cache_dir + "/rppi", "rppi", recipes);
-    } else
+    } else if(retry <= 10)
       goto updaterppi;
     if (!recipes.size()) {
       std::cout << "update rppi index" << std::endl;
       update_rppi(cache_dir + "/rppi", mirror, proxy);
-      goto normal_exit;
     }
     if (result.count("list")) {
       print_recipes(recipes);
-      goto normal_exit;
     }
     if (result.count("install")) {
       std::string repo = result["install"].as<std::string>();
@@ -804,7 +802,6 @@ int main(int argc, char **argv) {
         std::cout << "install recipe by : " << repo << " failed ||-_-"
                   << std::endl;
       }
-      goto normal_exit;
     } else if (result.count("git")) {
       std::string repo = result["git"].as<std::string>();
       repo = convertToUtf8(repo);
@@ -823,14 +820,12 @@ int main(int argc, char **argv) {
         std::cout << ", with recipe file: " << recipe_file;
       std::cout << std::endl;
       install_recipe(recipe, recipe_file);
-      goto normal_exit;
     } else if (result.count("search")) {
       std::string repo = result["search"].as<std::string>();
       repo = convertToUtf8(repo);
       std::cout << "search recipe with keyword: " << repo << std::endl;
       VRecipe res = filter_recipes_with_keyword(recipes, repo, false);
       print_recipes(res);
-      goto normal_exit;
     } else if (result.count("delete")) {
       std::string repo = result["delete"].as<std::string>();
       repo = convertToUtf8(repo);
@@ -858,7 +853,6 @@ int main(int argc, char **argv) {
         std::cout << "delete recipe by : " << repo
                   << " failed ||-_-" << std::endl;
       }
-      goto normal_exit;
     } else if (result.count("purge")) {
       std::string repo = result["purge"].as<std::string>();
       repo = convertToUtf8(repo);
@@ -878,7 +872,6 @@ int main(int argc, char **argv) {
         std::cout << "purge recipe by : " << repo
                   << " failed ||-_-" << std::endl;
       }
-      goto normal_exit;
     }
   } catch (const std::exception &e) {
     std::cerr << "Error parsing options: " << e.what() << std::endl;
